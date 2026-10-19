@@ -170,7 +170,6 @@ impl<'a> TestContext<'a> {
             &0,
             &None,
             &crate::StreamKind::Linear,
-            &None,
         )
     }
 
@@ -188,7 +187,6 @@ impl<'a> TestContext<'a> {
             &0,
             &None,
             &crate::StreamKind::Linear,
-            &None,
         )
     }
 
@@ -205,7 +203,6 @@ impl<'a> TestContext<'a> {
             &0,
             &None,
             &crate::StreamKind::Linear,
-            &None,
         )
     }
 
@@ -222,7 +219,6 @@ impl<'a> TestContext<'a> {
             &0,
             &None,
             &crate::StreamKind::Linear,
-            &None,
         )
     }
 }
@@ -232,7 +228,6 @@ impl<'a> TestContext<'a> {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_init_stores_token_and_admin() {
     let env = Env::default();
     env.mock_all_auths();
@@ -250,7 +245,6 @@ fn test_init_stores_token_and_admin() {
 }
 
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_init_requires_admin_authorization_in_strict_mode() {
     let env = Env::default();
 
@@ -314,7 +308,6 @@ fn test_init_rejects_wrong_signer_and_has_no_side_effects() {
 }
 
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_init_second_call_fails() {
     let env = Env::default();
     env.mock_all_auths();
@@ -358,7 +351,6 @@ fn test_get_config_uninitialized_contract_panics() {
 }
 
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_init_stores_config() {
     let env = Env::default();
     env.mock_all_auths();
@@ -376,7 +368,6 @@ fn test_init_stores_config() {
 }
 
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_init_twice_panics() {
     let env = Env::default();
     env.mock_all_auths();
@@ -396,7 +387,6 @@ fn test_init_twice_panics() {
 }
 
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_init_sets_stream_counter_to_zero() {
     let env = Env::default();
     env.mock_all_auths();
@@ -439,7 +429,6 @@ fn test_init_sets_stream_counter_to_zero() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     assert_eq!(stream_id, 0, "first stream should have id 0");
@@ -475,14 +464,12 @@ fn test_get_stream_count_tracks_successful_creates() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     assert_eq!(id1, 1);
     assert_eq!(ctx.client().get_stream_count(), 2);
 }
 
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_init_with_different_addresses() {
     let env = Env::default();
     env.mock_all_auths();
@@ -509,7 +496,6 @@ fn test_init_with_different_addresses() {
 
 /// Re-init with the exact same token and admin must still panic.
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_reinit_same_token_same_admin_panics() {
     let env = Env::default();
     env.mock_all_auths();
@@ -528,7 +514,6 @@ fn test_reinit_same_token_same_admin_panics() {
 
 /// Re-init with a different token but same admin must panic.
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_reinit_different_token_same_admin_panics() {
     let env = Env::default();
     env.mock_all_auths();
@@ -548,7 +533,6 @@ fn test_reinit_different_token_same_admin_panics() {
 
 /// Re-init with same token but a different admin must panic.
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_reinit_same_token_different_admin_panics() {
     let env = Env::default();
     env.mock_all_auths();
@@ -568,7 +552,6 @@ fn test_reinit_same_token_different_admin_panics() {
 
 /// After a failed re-init attempt the original config must be unchanged.
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_config_unchanged_after_failed_reinit() {
     let env = Env::default();
     env.mock_all_auths();
@@ -642,7 +625,6 @@ fn test_operations_work_after_failed_reinit() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     let state = client.get_stream_state(&stream_id);
@@ -690,7 +672,6 @@ fn test_create_stream_emits_event() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     let events = ctx.env.events().all();
@@ -723,7 +704,6 @@ fn test_create_stream_panics_when_contract_paused() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     assert_eq!(result, Err(Ok(ContractError::ContractPaused)));
 }
@@ -745,7 +725,6 @@ fn test_create_stream_succeeds_after_unpause() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     assert_eq!(id, 0);
     assert_eq!(
@@ -826,7 +805,6 @@ fn test_create_stream_zero_deposit_panics() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     assert_eq!(result, Err(Ok(ContractError::InvalidParams)));
 }
@@ -846,7 +824,6 @@ fn test_create_stream_invalid_times_panics() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     assert_eq!(result, Err(Ok(ContractError::InvalidParams)));
 }
@@ -866,7 +843,6 @@ fn test_create_stream_multiple() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     let stream_id_2 = ctx.client().create_stream(
@@ -880,7 +856,6 @@ fn test_create_stream_multiple() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     let stream_id_3 = ctx.client().create_stream(
@@ -894,7 +869,6 @@ fn test_create_stream_multiple() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     let stream_id_4 = ctx.client().create_stream(
@@ -908,7 +882,6 @@ fn test_create_stream_multiple() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     let stream_id_5 = ctx.client().create_stream(
@@ -922,7 +895,6 @@ fn test_create_stream_multiple() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     let state = ctx.client().get_stream_state(&stream_id_1);
@@ -960,7 +932,6 @@ fn test_create_stream_multiple_loop() {
             &0,
             &None,
             &crate::StreamKind::Linear,
-            &None,
         );
 
         counter += 1;
@@ -1021,7 +992,6 @@ fn test_create_stream_large_deposit_accepted() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     let state = ctx.client().get_stream_state(&stream_id);
@@ -1056,7 +1026,6 @@ fn test_create_stream_long_duration_accepted() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     let state = ctx.client().get_stream_state(&stream_id);
@@ -1091,7 +1060,6 @@ fn test_large_deposit_amount_sanity() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Check midway
@@ -1132,7 +1100,6 @@ fn test_create_stream_end_equals_start_panics() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 }
 
@@ -1153,7 +1120,6 @@ fn test_create_stream_end_before_start_panics() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 }
 
@@ -1174,7 +1140,6 @@ fn test_create_stream_end_one_less_than_start_panics() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 }
 
@@ -1197,7 +1162,6 @@ fn test_create_stream_cliff_one_before_start_panics() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 }
 
@@ -1218,7 +1182,6 @@ fn test_create_stream_cliff_one_after_end_panics() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 }
 
@@ -1239,7 +1202,6 @@ fn test_create_stream_cliff_far_before_start_panics() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 }
 
@@ -1260,7 +1222,6 @@ fn test_create_stream_cliff_far_after_end_panics() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 }
 
@@ -1280,7 +1241,6 @@ fn test_create_stream_cliff_at_start_valid() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     let state = ctx.client().get_stream_state(&id);
     assert_eq!(state.cliff_time, 100);
@@ -1303,7 +1263,6 @@ fn test_create_stream_cliff_at_end_valid() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     let state = ctx.client().get_stream_state(&id);
     assert_eq!(state.cliff_time, 1000);
@@ -1329,7 +1288,6 @@ fn test_create_stream_deposit_zero_panics() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 }
 
@@ -1350,7 +1308,6 @@ fn test_create_stream_deposit_minus_one_panics() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 }
 
@@ -1371,7 +1328,6 @@ fn test_create_stream_deposit_i128_min_panics() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 }
 
@@ -1390,7 +1346,6 @@ fn test_create_stream_deposit_one_valid() {
         &1u64, // 1 second, so rate * duration = 1 == deposit
         &0,
         &None,
-        &crate::StreamKind::Linear,
         &None,
     );
     let state = ctx.client().get_stream_state(&id);
@@ -1416,7 +1371,6 @@ fn test_create_stream_rate_zero_panics() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 }
 
@@ -1437,7 +1391,6 @@ fn test_create_stream_rate_minus_one_panics() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 }
 
@@ -1458,7 +1411,6 @@ fn test_create_stream_rate_i128_min_panics() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 }
 
@@ -1478,7 +1430,6 @@ fn test_create_stream_rate_one_valid() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     let state = ctx.client().get_stream_state(&id);
     assert_eq!(state.rate_per_second, 1);
@@ -1504,7 +1455,6 @@ fn test_create_stream_deposit_one_less_than_required_panics() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 }
 
@@ -1525,7 +1475,6 @@ fn test_create_stream_deposit_exactly_required_valid() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     let state = ctx.client().get_stream_state(&id);
     assert_eq!(state.deposit_amount, 1000);
@@ -1549,7 +1498,6 @@ fn test_create_stream_deposit_far_below_required_panics() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 }
 
@@ -1569,7 +1517,6 @@ fn test_create_stream_deposit_above_required_valid() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     let state = ctx.client().get_stream_state(&id);
     assert_eq!(state.deposit_amount, 5000);
@@ -1595,7 +1542,6 @@ fn test_create_stream_sender_is_recipient_panics() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 }
 
@@ -1622,7 +1568,6 @@ fn test_create_stream_sender_equals_recipient_has_no_side_effects() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     assert_eq!(
@@ -1664,7 +1609,6 @@ fn test_create_stream_different_sender_recipient_valid() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     let state = ctx.client().get_stream_state(&id);
     assert_ne!(state.sender, state.recipient);
@@ -1690,7 +1634,6 @@ fn test_create_stream_zero_rate_panics() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 }
 
@@ -1710,7 +1653,6 @@ fn test_create_stream_sender_equals_recipient_panics() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 }
 
@@ -1734,7 +1676,6 @@ fn test_create_stream_cliff_before_start_panics() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 }
 
@@ -1754,7 +1695,6 @@ fn test_create_stream_cliff_after_end_panics() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 }
 
@@ -1773,7 +1713,6 @@ fn test_create_stream_cliff_equals_start_succeeds() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     let state = ctx.client().get_stream_state(&stream_id);
     assert_eq!(state.cliff_time, 0);
@@ -1794,7 +1733,6 @@ fn test_create_stream_cliff_equals_end_succeeds() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     let state = ctx.client().get_stream_state(&stream_id);
     assert_eq!(state.cliff_time, 1000);
@@ -1819,7 +1757,6 @@ fn test_create_stream_deposit_less_than_total_panics() {
         &1000u64, // duration = 1000s, so total = 1000 tokens needed
         &0,
         &None,
-        &crate::StreamKind::Linear,
         &None,
     );
 }
@@ -1839,7 +1776,6 @@ fn test_create_stream_deposit_equals_total_succeeds() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     let state = ctx.client().get_stream_state(&stream_id);
     assert_eq!(state.deposit_amount, 1000);
@@ -1859,7 +1795,6 @@ fn test_create_stream_deposit_greater_than_total_succeeds() {
         &1000u64, // duration = 1000s, total needed = 1000
         &0,
         &None,
-        &crate::StreamKind::Linear,
         &None,
     );
     let state = ctx.client().get_stream_state(&stream_id);
@@ -1887,7 +1822,6 @@ fn test_create_stream_insufficient_balance_panics() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 }
 
@@ -1909,7 +1843,6 @@ fn test_create_stream_transfer_failure_no_state_change() {
             &0,
             &None,
             &crate::StreamKind::Linear,
-            &None,
         )
     }));
 
@@ -1952,7 +1885,6 @@ fn test_calculate_accrued_before_cliff() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     ctx.env.ledger().set_timestamp(300);
     let accrued = ctx.client().calculate_accrued(&stream_id);
@@ -2018,7 +1950,6 @@ fn test_accrued_after_cliff_before_end() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     ctx.env.ledger().set_timestamp(500);
@@ -2054,7 +1985,6 @@ fn test_create_stream_with_cliff_equals_start_accrues_immediately() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Advance time past start; since cliff == start, accrual should begin immediately
@@ -2199,7 +2129,6 @@ fn test_calculate_accrued_cancelled_stream_time_based() {
 /// Paused stream before cliff: calculate_accrued must return 0.
 /// Accrual does NOT start until cliff_time, regardless of pause state.
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_calculate_accrued_paused_before_cliff() {
     let ctx = TestContext::setup();
     // Create stream with cliff at 500
@@ -2215,7 +2144,6 @@ fn test_calculate_accrued_paused_before_cliff() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Advance to t=300 (before cliff) and pause
@@ -2234,7 +2162,6 @@ fn test_calculate_accrued_paused_before_cliff() {
 /// Paused stream after cliff: calculate_accrued must accrue normally using current ledger time.
 /// Pausing does NOT freeze accrual — it only blocks withdrawals.
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_calculate_accrued_paused_after_cliff() {
     let ctx = TestContext::setup();
     // Create stream with cliff at 500
@@ -2250,7 +2177,6 @@ fn test_calculate_accrued_paused_after_cliff() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Advance past cliff and pause
@@ -2276,7 +2202,6 @@ fn test_calculate_accrued_paused_after_cliff() {
 
 /// Paused stream at end_time: calculate_accrued must cap at deposit_amount.
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_calculate_accrued_paused_at_end_time() {
     let ctx = TestContext::setup();
     ctx.env.ledger().set_timestamp(0);
@@ -2291,7 +2216,6 @@ fn test_calculate_accrued_paused_at_end_time() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Advance to nearly end_time and pause
@@ -2322,7 +2246,6 @@ fn test_calculate_accrued_paused_at_end_time() {
 /// This test verifies that calling calculate_accrued multiple times
 /// returns the same value at the same timestamp, regardless of pause state changes.
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_calculate_accrued_paused_deterministic() {
     let ctx = TestContext::setup();
     let stream_id = ctx.create_default_stream();
@@ -2371,7 +2294,6 @@ fn test_calculate_accrued_cancelled_before_cliff() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Cancel at t=300 (before cliff)
@@ -2408,7 +2330,6 @@ fn test_calculate_accrued_cancelled_at_cliff() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Cancel at exact cliff time (t=500)
@@ -2539,7 +2460,6 @@ fn test_calculate_accrued_zero_duration_stream() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     assert_eq!(result, Err(Ok(ContractError::InvalidParams)));
@@ -2564,7 +2484,6 @@ fn test_calculate_accrued_zero_deposit_stream() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     assert_eq!(result, Err(Ok(ContractError::InvalidParams)));
@@ -2589,7 +2508,6 @@ fn test_calculate_accrued_zero_rate_stream() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     assert_eq!(result, Err(Ok(ContractError::InvalidParams)));
@@ -2623,7 +2541,6 @@ fn test_large_rate_no_overflow() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     ctx.env.ledger().set_timestamp(1);
@@ -2658,7 +2575,6 @@ fn test_large_duration_no_overflow() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Set time to a very large value past the end
@@ -2700,7 +2616,6 @@ fn test_combined_large_rate_and_duration() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Set time to cause potential overflow in multiplication
@@ -2735,7 +2650,6 @@ fn test_boundary_max_rate_per_second() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     ctx.env.ledger().set_timestamp(2);
@@ -2764,7 +2678,6 @@ fn test_boundary_min_positive_values() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     ctx.env.ledger().set_timestamp(1);
@@ -2792,7 +2705,6 @@ fn test_zero_rate_returns_zero() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Even with time elapsed, if rate were 0, accrued would be 0
@@ -2821,7 +2733,6 @@ fn test_zero_duration_returns_zero() {
         &0, // End at 0 (duration is zero)
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     assert_eq!(result, Err(Ok(crate::ContractError::InvalidParams)));
@@ -2850,7 +2761,6 @@ fn test_result_capping_at_deposit() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Set time way past end
@@ -2890,7 +2800,6 @@ fn test_result_capping_with_overflow() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     ctx.env.ledger().set_timestamp(1);
@@ -2928,7 +2837,6 @@ fn test_no_panic_on_extreme_inputs() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Test at various timestamps
@@ -2964,7 +2872,6 @@ fn test_no_underflow_negative_result() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Query before start (though this shouldn't happen in practice)
@@ -2992,7 +2899,6 @@ fn test_elapsed_time_checked_subtraction() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Set time before start (edge case)
@@ -3032,7 +2938,6 @@ fn test_rate_times_duration_overflow_caps() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     ctx.env.ledger().set_timestamp(5);
@@ -3068,7 +2973,6 @@ fn test_accrued_never_exceeds_deposit_multiple_checks() {
         &100u64, // Would accrue 5,000 at end
         &0,
         &None,
-        &crate::StreamKind::Linear,
         &None,
     );
 
@@ -3115,7 +3019,6 @@ fn test_cliff_with_overflow_scenario() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Before cliff - should return 0
@@ -3135,7 +3038,6 @@ fn test_cliff_with_overflow_scenario() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_pause_and_resume() {
     let ctx = TestContext::setup();
     let stream_id = ctx.create_default_stream();
@@ -3151,7 +3053,6 @@ fn test_pause_and_resume() {
 }
 
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_admin_can_resume_stream() {
     let ctx = TestContext::setup();
     let stream_id = ctx.create_default_stream();
@@ -3314,7 +3215,6 @@ fn test_cancel_completed_stream_panics() {
 }
 
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_cancel_stream_allows_active_or_paused() {
     let ctx = TestContext::setup();
     let active_stream_id = ctx.create_default_stream();
@@ -3614,7 +3514,6 @@ fn test_withdraw_to_full_amount_completes_stream() {
 }
 
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_withdraw_to_requires_recipient_auth() {
     let ctx = TestContext::setup_strict();
     use soroban_sdk::testutils::MockAuth;
@@ -3653,7 +3552,6 @@ fn test_withdraw_to_requires_recipient_auth() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     ctx.env.ledger().set_timestamp(500);
@@ -3737,7 +3635,6 @@ fn test_batch_withdraw_mixed_active_and_completed() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     ); // will be completed
     let id2 = ctx.client().create_stream(
         &ctx.sender,
@@ -3750,7 +3647,6 @@ fn test_batch_withdraw_mixed_active_and_completed() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     ); // active
 
     // Complete id1
@@ -3795,7 +3691,6 @@ fn test_batch_withdraw_all_completed_all_zero() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Complete both
@@ -3914,7 +3809,6 @@ fn test_batch_withdraw_multiple_streams() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     ctx.env.ledger().set_timestamp(0);
     let id2 = ctx.client().create_stream(
@@ -3928,7 +3822,6 @@ fn test_batch_withdraw_multiple_streams() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     ctx.env.ledger().set_timestamp(400);
@@ -3963,7 +3856,6 @@ fn test_batch_withdraw_mixed_state_some_zero() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Test batch withdraw with mixed states
@@ -4053,7 +3945,6 @@ fn test_batch_withdraw_emits_events_per_stream() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     ctx.env.ledger().set_timestamp(250);
@@ -4069,7 +3960,6 @@ fn test_batch_withdraw_emits_events_per_stream() {
 }
 
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_withdraw_recipient_success() {
     let ctx = TestContext::setup_strict();
 
@@ -4107,7 +3997,6 @@ fn test_withdraw_recipient_success() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     ctx.env.ledger().set_timestamp(500);
@@ -4169,7 +4058,6 @@ fn test_withdraw_not_recipient_unauthorized() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     ctx.env.ledger().set_timestamp(500);
@@ -4191,7 +4079,6 @@ fn test_withdraw_not_recipient_unauthorized() {
 }
 
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_withdraw_not_recipient_unauthorized_has_no_side_effects() {
     let ctx = TestContext::setup_strict();
 
@@ -4229,7 +4116,6 @@ fn test_withdraw_not_recipient_unauthorized_has_no_side_effects() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     ctx.env.ledger().set_timestamp(700);
@@ -4418,7 +4304,6 @@ fn test_close_completed_stream_multiple_streams_closes_correct_one() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     let id1 = ctx.client().create_stream(
@@ -4432,7 +4317,6 @@ fn test_close_completed_stream_multiple_streams_closes_correct_one() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     let id2 = ctx.client().create_stream(
@@ -4446,7 +4330,6 @@ fn test_close_completed_stream_multiple_streams_closes_correct_one() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Complete all three streams
@@ -4514,7 +4397,6 @@ fn test_close_completed_stream_recipient_index_sorted_after_close() {
             &0,
             &None,
             &crate::StreamKind::Linear,
-            &None,
         );
     }
 
@@ -4573,7 +4455,6 @@ fn test_close_completed_stream_after_cliff_passed() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Advance past cliff and end time
@@ -4609,7 +4490,6 @@ fn test_close_completed_stream_count_decreases() {
             &0,
             &None,
             &crate::StreamKind::Linear,
-            &None,
         );
     }
 
@@ -4648,7 +4528,6 @@ fn test_close_completed_stream_different_recipients_independent() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Create stream for recipient2
@@ -4663,7 +4542,6 @@ fn test_close_completed_stream_different_recipients_independent() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     assert_eq!(ctx.client().get_recipient_stream_count(&ctx.recipient), 1);
@@ -4711,7 +4589,6 @@ fn test_top_up_stream_increases_deposit_and_contract_balance() {
 }
 
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_top_up_stream_sender_auth_success_strict() {
     use soroban_sdk::{testutils::MockAuth, testutils::MockAuthInvoke, IntoVal};
 
@@ -4812,7 +4689,6 @@ fn test_top_up_stream_allows_third_party_funder_and_emits_payload() {
 }
 
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_top_up_stream_paused_preserves_schedule_and_status() {
     let ctx = TestContext::setup();
     let stream_id = ctx.create_default_stream();
@@ -4905,7 +4781,6 @@ fn test_top_up_stream_rejects_non_positive_amount() {
 }
 
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_top_up_stream_rejects_impersonated_funder_and_emits_no_event_strict() {
     use soroban_sdk::{testutils::MockAuth, testutils::MockAuthInvoke, IntoVal};
 
@@ -5066,7 +4941,6 @@ fn test_withdraw_paused_stream_panics() {
 }
 
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_withdraw_after_resume_succeeds() {
     let ctx = TestContext::setup();
     let stream_id = ctx.create_default_stream();
@@ -5106,7 +4980,6 @@ fn test_multiple_streams_independent() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     assert_eq!(id0, 0);
@@ -5152,7 +5025,6 @@ fn test_cancel_stream_as_random_address_fails() {
 }
 
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_admin_can_pause_stream() {
     let ctx = TestContext::setup();
     let stream_id = ctx.create_default_stream();
@@ -5167,7 +5039,6 @@ fn test_admin_can_pause_stream() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_pause_resume_events() {
     let ctx = TestContext::setup();
     let stream_id = ctx.create_default_stream();
@@ -5247,7 +5118,6 @@ fn test_completed_event() {
 /// `pause_stream_as_admin` must emit topic ("paused", stream_id) with
 /// `StreamEvent::Paused(stream_id)` — identical to `pause_stream`.
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_admin_pause_emits_same_event_as_sender_pause() {
     let ctx = TestContext::setup();
     let stream_id = ctx.create_default_stream();
@@ -5281,7 +5151,6 @@ fn test_admin_pause_emits_same_event_as_sender_pause() {
 /// `resume_stream_as_admin` must emit topic ("resumed", stream_id) with
 /// `StreamEvent::Resumed(stream_id)` — identical to `resume_stream`.
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_admin_resume_emits_same_event_as_sender_resume() {
     let ctx = TestContext::setup();
     let stream_id = ctx.create_default_stream();
@@ -5343,7 +5212,6 @@ fn test_admin_cancel_emits_same_event_as_sender_cancel() {
 /// `set_contract_paused` must emit topic ("ct_pause",) with `ContractPauseChanged`
 /// payload for both the pause and unpause transitions.
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_set_contract_paused_emits_ct_pause_event() {
     let ctx = TestContext::setup();
 
@@ -5426,7 +5294,6 @@ fn test_set_global_emergency_paused_emits_gl_pause_event() {
 /// When set_global_emergency_paused is true, user mutations (withdraw, cancel) are
 /// blocked but admin overrides still work and still emit the correct event.
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_admin_ops_emit_events_during_global_emergency_pause() {
     let ctx = TestContext::setup();
     let stream_id = ctx.create_default_stream();
@@ -5452,7 +5319,7 @@ fn test_admin_ops_emit_events_during_global_emergency_pause() {
         paused_payload,
         StreamPaused {
             stream_id,
-            reason: soroban_sdk::String::from_str(&ctx.env, "Administrative")
+            reason: crate::PauseReason::Administrative
         },
         "pause_stream_as_admin must emit StreamPaused during global emergency pause"
     );
@@ -5523,7 +5390,6 @@ fn test_pause_stream_recipient_unauthorized() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Recipient attempts to pause (should be unauthorized)
@@ -5581,7 +5447,6 @@ fn test_pause_stream_third_party_unauthorized() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     let other = Address::generate(&ctx.env);
@@ -5600,7 +5465,6 @@ fn test_pause_stream_third_party_unauthorized() {
 }
 
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_pause_stream_sender_success() {
     let ctx = TestContext::setup_strict();
 
@@ -5639,7 +5503,6 @@ fn test_pause_stream_sender_success() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Sender authorises pause
@@ -5660,7 +5523,6 @@ fn test_pause_stream_sender_success() {
 }
 
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_pause_stream_admin_success() {
     let ctx = TestContext::setup_strict();
 
@@ -5700,7 +5562,6 @@ fn test_pause_stream_admin_success() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Admin authorises pause via the admin-specific entrypoint
@@ -5761,7 +5622,6 @@ fn test_pause_stream_as_admin_non_admin_unauthorized() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // A non-admin cannot use the admin override entrypoint.
@@ -5822,7 +5682,6 @@ fn test_cancel_stream_recipient_unauthorized() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     ctx.env.mock_auths(&[MockAuth {
@@ -5878,7 +5737,6 @@ fn test_cancel_stream_third_party_unauthorized() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     let other = Address::generate(&ctx.env);
@@ -5896,7 +5754,6 @@ fn test_cancel_stream_third_party_unauthorized() {
 }
 
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_cancel_stream_sender_success() {
     let ctx = TestContext::setup_strict();
 
@@ -5935,7 +5792,6 @@ fn test_cancel_stream_sender_success() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     ctx.env.mock_auths(&[MockAuth {
@@ -5954,7 +5810,6 @@ fn test_cancel_stream_sender_success() {
 }
 
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_cancel_stream_admin_success() {
     let ctx = TestContext::setup_strict();
 
@@ -5993,7 +5848,6 @@ fn test_cancel_stream_admin_success() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     ctx.env.mock_auths(&[MockAuth {
@@ -6032,7 +5886,6 @@ fn test_create_stream_negative_deposit_panics() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 }
 
@@ -6053,7 +5906,6 @@ fn test_create_stream_negative_rate_panics() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 }
 
@@ -6074,7 +5926,6 @@ fn test_create_stream_equal_start_end_times_panics() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 }
 
@@ -6095,7 +5946,6 @@ fn test_create_stream_cliff_equals_start() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     let state = ctx.client().get_stream_state(&stream_id);
@@ -6121,7 +5971,6 @@ fn test_create_stream_cliff_equals_end() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     let state = ctx.client().get_stream_state(&stream_id);
@@ -6147,7 +5996,6 @@ fn test_create_stream_increments_id_correctly() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     let id1 = ctx.client().create_stream(
@@ -6161,7 +6009,6 @@ fn test_create_stream_increments_id_correctly() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     let id2 = ctx.client().create_stream(
@@ -6175,7 +6022,6 @@ fn test_create_stream_increments_id_correctly() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     assert_eq!(id0, 0);
@@ -6214,7 +6060,6 @@ fn test_create_stream_large_deposit() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     let state = ctx.client().get_stream_state(&stream_id);
@@ -6243,7 +6088,6 @@ fn test_create_stream_high_rate() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     let state = ctx.client().get_stream_state(&stream_id);
@@ -6271,7 +6115,6 @@ fn test_create_stream_different_addresses() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     let state = ctx.client().get_stream_state(&stream_id);
@@ -6296,7 +6139,6 @@ fn test_create_stream_future_start_time() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     let state = ctx.client().get_stream_state(&stream_id);
@@ -6327,7 +6169,6 @@ fn test_create_stream_token_balances() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Sender balance should decrease by deposit
@@ -6366,7 +6207,6 @@ fn test_create_stream_minimum_duration() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     let state = ctx.client().get_stream_state(&stream_id);
@@ -6397,7 +6237,6 @@ fn test_create_stream_all_fields_correct() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     let state = ctx.client().get_stream_state(&stream_id);
@@ -6433,7 +6272,6 @@ fn test_create_stream_self_stream_panics() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 }
 
@@ -6449,7 +6287,6 @@ fn test_get_stream_state_non_existent() {
 }
 
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_get_stream_state_all_statuses() {
     let ctx = TestContext::setup();
 
@@ -6534,7 +6371,6 @@ fn test_create_stream_invalid_cliff_panics() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 }
 
@@ -6554,7 +6390,6 @@ fn test_create_stream_edge_cliffs() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     assert_eq!(ctx.client().get_stream_state(&id1).cliff_time, 100);
 
@@ -6570,7 +6405,6 @@ fn test_create_stream_edge_cliffs() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     assert_eq!(ctx.client().get_stream_state(&id2).cliff_time, 1100);
 }
@@ -6589,7 +6423,6 @@ fn test_calculate_accrued_exactly_at_cliff() {
 }
 
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_admin_can_pause_via_admin_path() {
     let ctx = TestContext::setup();
     let stream_id = ctx.create_default_stream();
@@ -6641,7 +6474,6 @@ fn test_cancel_at_start_full_refund_and_status() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Verify deposit transferred
@@ -6694,7 +6526,6 @@ fn test_cancel_at_25_percent_partial_refund_recipient_withdraws() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     let sender_initial = ctx.token().balance(&ctx.sender);
@@ -6763,7 +6594,6 @@ fn test_cancel_at_50_percent_exact_refund_calculation() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     let sender_before_cancel = ctx.token().balance(&ctx.sender);
@@ -6813,7 +6643,6 @@ fn test_cancel_at_75_percent_recipient_can_withdraw_accrued() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Advance to 75% completion (3000 seconds)
@@ -6861,7 +6690,6 @@ fn test_cancel_after_partial_withdrawal_correct_refund() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Advance to 40% and withdraw
@@ -6912,7 +6740,6 @@ fn test_cancel_before_cliff_full_refund() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     let sender_before_cancel = ctx.token().balance(&ctx.sender);
@@ -6957,7 +6784,6 @@ fn test_cancel_after_cliff_partial_refund() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     let sender_before_cancel = ctx.token().balance(&ctx.sender);
@@ -6990,7 +6816,6 @@ fn test_cancel_after_cliff_partial_refund() {
 
 /// Test cancel of paused stream - verify accrual continues during pause
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_cancel_paused_stream_accrual_continues() {
     let ctx = TestContext::setup();
 
@@ -7007,7 +6832,6 @@ fn test_cancel_paused_stream_accrual_continues() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Advance to 30% and pause
@@ -7061,7 +6885,6 @@ fn test_cancel_balance_consistency() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Verify total supply unchanged after creation
@@ -7129,7 +6952,6 @@ fn test_get_stream_state_create_stream() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     let state = ctx.client().get_stream_state(&stream_id);
@@ -7160,7 +6982,6 @@ fn test_get_stream_state_create_stream_withdraw_during_cliff() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     ctx.env.ledger().set_timestamp(1000);
     ctx.client().withdraw(&stream_id);
@@ -7193,7 +7014,6 @@ fn test_get_stream_state_create_stream_withdraw() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     ctx.env.ledger().set_timestamp(6000);
     ctx.client().withdraw(&stream_id);
@@ -7226,7 +7046,6 @@ fn test_get_stream_state_create_stream_cancel() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     ctx.client().cancel_stream(&stream_id);
 
@@ -7244,7 +7063,6 @@ fn test_get_stream_state_create_stream_cancel() {
 }
 
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_get_stream_state_pause_stream_cancel() {
     let ctx = TestContext::setup();
     ctx.env.ledger().set_timestamp(0);
@@ -7259,7 +7077,6 @@ fn test_get_stream_state_pause_stream_cancel() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     ctx.client()
         .pause_stream(&stream_id, &crate::PauseReason::Operational);
@@ -7278,7 +7095,6 @@ fn test_get_stream_state_pause_stream_cancel() {
 }
 
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_get_stream_state_pause_resume_stream_cancel() {
     let ctx = TestContext::setup();
     ctx.env.ledger().set_timestamp(0);
@@ -7293,7 +7109,6 @@ fn test_get_stream_state_pause_resume_stream_cancel() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     ctx.client()
         .pause_stream(&stream_id, &crate::PauseReason::Operational);
@@ -7786,7 +7601,6 @@ fn test_withdraw_excess_deposit_only_streams_calculated_amount() {
         &1000u64, // duration 1000s, so only 1000 will stream
         &0,
         &None,
-        &crate::StreamKind::Linear,
         &None,
     );
 
@@ -7840,7 +7654,6 @@ fn test_withdraw_small_rate_no_underflow() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // At t=50, accrued should be 50 tokens
@@ -7970,7 +7783,6 @@ fn test_withdraw_after_cancel_then_completed() {
 
 /// Test pause stream as sender - successfully pauses and asserts status is Paused
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_pause_stream_sender_transitions_to_paused() {
     let ctx = TestContext::setup();
     let stream_id = ctx.create_default_stream();
@@ -7998,7 +7810,6 @@ fn test_pause_stream_sender_transitions_to_paused() {
 
 /// Test pause stream as admin - successfully pauses via admin entrypoint
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_pause_stream_admin_transitions_to_paused() {
     let ctx = TestContext::setup();
     let stream_id = ctx.create_default_stream();
@@ -8022,7 +7833,6 @@ fn test_pause_stream_admin_transitions_to_paused() {
 
 /// Test resume stream as sender - successfully resumes from paused state
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_resume_stream_sender_transitions_to_active() {
     let ctx = TestContext::setup();
     let stream_id = ctx.create_default_stream();
@@ -8050,7 +7860,6 @@ fn test_resume_stream_sender_transitions_to_active() {
 
 /// Test resume stream as admin - successfully resumes via admin entrypoint
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_resume_stream_admin_transitions_to_active() {
     let ctx = TestContext::setup();
     let stream_id = ctx.create_default_stream();
@@ -8108,7 +7917,6 @@ fn test_resume_active_stream_fails_with_error() {
 
 /// Test pause-resume-pause-resume multiple times preserves integrity
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_multiple_pause_resume_cycles() {
     let ctx = TestContext::setup();
     let stream_id = ctx.create_default_stream();
@@ -8152,7 +7960,6 @@ fn test_multiple_pause_resume_cycles() {
 
 /// Test pause then resume allows withdrawal
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_resume_enables_withdrawal() {
     let ctx = TestContext::setup();
     let stream_id = ctx.create_default_stream();
@@ -8182,7 +7989,6 @@ fn test_resume_enables_withdrawal() {
 
 /// Test accrual continues during pause - pause doesn't affect accrual
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_accrual_continues_during_pause() {
     let ctx = TestContext::setup();
     let stream_id = ctx.create_default_stream();
@@ -8210,7 +8016,6 @@ fn test_accrual_continues_during_pause() {
 
 /// Test pause stream with different sender/admin authorization
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_pause_stream_sender_and_admin_can_pause() {
     let ctx = TestContext::setup();
 
@@ -8235,7 +8040,6 @@ fn test_pause_stream_sender_and_admin_can_pause() {
 
 /// Test resume stream with different sender/admin authorization
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_resume_stream_sender_and_admin_can_resume() {
     let ctx = TestContext::setup();
 
@@ -8262,7 +8066,6 @@ fn test_resume_stream_sender_and_admin_can_resume() {
 
 /// Test pause/resume events are published correctly
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_pause_resume_events_published() {
     let ctx = TestContext::setup();
     let stream_id = ctx.create_default_stream();
@@ -8296,7 +8099,6 @@ fn test_pause_resume_events_published() {
 
 /// Test pause does not affect token balances
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_pause_resume_preserves_token_balances() {
     let ctx = TestContext::setup();
     let stream_id = ctx.create_default_stream();
@@ -8321,7 +8123,6 @@ fn test_pause_resume_preserves_token_balances() {
 
 /// Test pause with cliff - can pause before and after cliff
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_pause_resume_with_cliff_before_cliff() {
     let ctx = TestContext::setup();
     let stream_id = ctx.create_cliff_stream(); // cliff at t=500
@@ -8347,7 +8148,6 @@ fn test_pause_resume_with_cliff_before_cliff() {
 
 /// Test pause with cliff - pause after cliff allows accrual
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_pause_resume_with_cliff_after_cliff() {
     let ctx = TestContext::setup();
     let stream_id = ctx.create_cliff_stream(); // cliff at t=500
@@ -8377,7 +8177,6 @@ fn test_pause_resume_with_cliff_after_cliff() {
 
 /// Test pause and cancel - can cancel a paused stream
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_pause_then_cancel() {
     let ctx = TestContext::setup();
     let stream_id = ctx.create_default_stream();
@@ -8442,7 +8241,6 @@ fn test_resume_cancelled_stream_fails() {
 
 /// Test pause then resume preserves withdrawal state
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_pause_resume_preserves_withdrawal_state() {
     let ctx = TestContext::setup();
     let stream_id = ctx.create_default_stream();
@@ -8493,7 +8291,6 @@ fn test_stream_id_first_stream_is_zero() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     assert_eq!(id, 0, "first stream_id must be 0");
@@ -8522,7 +8319,6 @@ fn test_stream_id_increments_by_one() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     let id1 = ctx.client().create_stream(
         &ctx.sender,
@@ -8535,7 +8331,6 @@ fn test_stream_id_increments_by_one() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     let id2 = ctx.client().create_stream(
         &ctx.sender,
@@ -8548,7 +8343,6 @@ fn test_stream_id_increments_by_one() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     assert_eq!(id0, 0, "first id must be 0");
@@ -8575,7 +8369,6 @@ fn test_create_stream_returned_id_matches_stored_id() {
             &0,
             &None,
             &crate::StreamKind::Linear,
-            &None,
         );
         let stored = ctx.client().get_stream_state(&returned_id);
 
@@ -8886,7 +8679,6 @@ fn test_stream_ids_are_unique_no_gaps() {
             &0,
             &None,
             &crate::StreamKind::Linear,
-            &None,
         );
         assert_eq!(id, expected, "stream {expected} must have id {expected}");
         ids.push_back(id);
@@ -8924,7 +8716,6 @@ fn test_failed_create_stream_does_not_advance_counter() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     assert_eq!(id0, 0);
 
@@ -8940,7 +8731,6 @@ fn test_failed_create_stream_does_not_advance_counter() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     assert_eq!(result, Err(Ok(ContractError::InsufficientDeposit)));
 
@@ -8956,7 +8746,6 @@ fn test_failed_create_stream_does_not_advance_counter() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     assert_eq!(
         id1, 1,
@@ -8988,7 +8777,6 @@ fn test_stream_ids_unique_across_different_senders() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     let id_b = ctx.client().create_stream(
         &sender2,
@@ -9001,7 +8789,6 @@ fn test_stream_ids_unique_across_different_senders() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     let id_c = ctx.client().create_stream(
         &ctx.sender,
@@ -9014,7 +8801,6 @@ fn test_stream_ids_unique_across_different_senders() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     assert_eq!(id_a, 0, "first stream (sender1→recipient1) must be 0");
@@ -9029,7 +8815,6 @@ fn test_stream_ids_unique_across_different_senders() {
 /// Pausing, resuming, or cancelling a stream must not alter any stream's
 /// stream_id field, and the global counter must continue from where it left off.
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_stream_id_stability_after_state_changes() {
     let ctx = TestContext::setup();
     ctx.env.ledger().set_timestamp(0);
@@ -9045,7 +8830,6 @@ fn test_stream_id_stability_after_state_changes() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     let id1 = ctx.client().create_stream(
         &ctx.sender,
@@ -9058,7 +8842,6 @@ fn test_stream_id_stability_after_state_changes() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     let id2 = ctx.client().create_stream(
         &ctx.sender,
@@ -9071,7 +8854,6 @@ fn test_stream_id_stability_after_state_changes() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Mutate stream 1: pause then cancel
@@ -9096,7 +8878,6 @@ fn test_stream_id_stability_after_state_changes() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     assert_eq!(
         id3, 3,
@@ -9442,7 +9223,6 @@ fn test_withdraw_completed_stream_panics() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_cancel_stream_from_paused_state() {
     let ctx = TestContext::setup();
 
@@ -9502,7 +9282,6 @@ fn test_create_stream_large_rate_overflow_in_accrual() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     ctx.env.ledger().set_timestamp(end_time);
@@ -9537,7 +9316,6 @@ fn test_accrual_capped_at_exact_total() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     ctx.env.ledger().set_timestamp(end_time);
@@ -9572,7 +9350,6 @@ fn test_accrual_capped_when_deposit_exceeds_total() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     ctx.env.ledger().set_timestamp(end_time);
@@ -9609,7 +9386,6 @@ fn test_create_streams_batch_success() {
         end_time: 1000,
         memo: None,
         metadata: None,
-        witness: None,
     };
 
     let params2 = CreateStreamParams {
@@ -9623,7 +9399,6 @@ fn test_create_streams_batch_success() {
         end_time: 1100,
         memo: None,
         metadata: None,
-        witness: None,
     };
 
     let params3 = CreateStreamParams {
@@ -9637,7 +9412,6 @@ fn test_create_streams_batch_success() {
         end_time: 1500,
         memo: None,
         metadata: None,
-        witness: None,
     };
 
     let streams = vec![&ctx.env, params1.clone(), params2.clone(), params3.clone()];
@@ -9690,7 +9464,6 @@ fn test_create_streams_batch_atomic_failure() {
         end_time: 1000,
         memo: None,
         metadata: None,
-        witness: None,
     };
 
     let invalid_params = CreateStreamParams {
@@ -9704,7 +9477,6 @@ fn test_create_streams_batch_atomic_failure() {
         end_time: 1000,
         memo: None,
         metadata: None,
-        witness: None,
     };
 
     let streams = vec![&ctx.env, valid_params, invalid_params];
@@ -9756,7 +9528,6 @@ fn test_create_streams_batch_sender_recipient_panic() {
         end_time: 1000,
         memo: None,
         metadata: None,
-        witness: None,
     };
 
     let streams = vec![&ctx.env, params];
@@ -9779,7 +9550,6 @@ fn test_create_streams_batch_sender_recipient_has_no_side_effects() {
         end_time: 1000,
         memo: None,
         metadata: None,
-        witness: None,
     };
 
     let streams = vec![&ctx.env, params];
@@ -9987,7 +9757,6 @@ fn test_create_streams_batch_strict_auth() {
         end_time: 1000,
         memo: None,
         metadata: None,
-        witness: None,
     };
 
     let params2 = CreateStreamParams {
@@ -10001,7 +9770,6 @@ fn test_create_streams_batch_strict_auth() {
         end_time: 2000,
         memo: None,
         metadata: None,
-        witness: None,
     };
 
     let streams = vec![&ctx.env, params1.clone(), params2.clone()];
@@ -10039,7 +9807,6 @@ fn test_create_streams_batch_emits_created_events_with_payloads() {
         end_time: 1111,
         memo: None,
         metadata: None,
-        witness: None,
     };
     let params2 = CreateStreamParams {
         kind: crate::StreamKind::Linear,
@@ -10052,7 +9819,6 @@ fn test_create_streams_batch_emits_created_events_with_payloads() {
         end_time: 1121,
         memo: None,
         metadata: None,
-        witness: None,
     };
     let streams = vec![&ctx.env, params1.clone(), params2.clone()];
     let events_before = ctx.env.events().all().len();
@@ -10105,7 +9871,6 @@ fn test_create_streams_batch_total_deposit_overflow_has_no_side_effects() {
         end_time: 1,
         memo: None,
         metadata: None,
-        witness: None,
     };
     let params2 = CreateStreamParams {
         kind: crate::StreamKind::Linear,
@@ -10118,7 +9883,6 @@ fn test_create_streams_batch_total_deposit_overflow_has_no_side_effects() {
         end_time: 1,
         memo: None,
         metadata: None,
-        witness: None,
     };
     let streams = vec![&ctx.env, params1, params2];
 
@@ -10173,7 +9937,6 @@ fn test_create_streams_batch_wrong_auth_fails_without_side_effects() {
         end_time: 1000,
         memo: None,
         metadata: None,
-        witness: None,
     };
     let streams = vec![&ctx.env, params.clone()];
     let stream_count_before = ctx.client().get_stream_count();
@@ -10210,7 +9973,6 @@ fn test_create_streams_batch_wrong_auth_fails_without_side_effects() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_set_admin_emits_event() {
     let ctx = TestContext::setup();
     let new_admin = Address::generate(&ctx.env);
@@ -10259,7 +10021,6 @@ fn test_set_admin_unauthorized_fails() {
 }
 
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_new_admin_can_perform_admin_ops() {
     let ctx = TestContext::setup();
     let new_admin = Address::generate(&ctx.env);
@@ -10316,7 +10077,6 @@ fn test_old_admin_loses_privileges_after_rotation() {
 }
 
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_set_admin_same_address_succeeds() {
     let ctx = TestContext::setup();
     let old_admin = ctx.admin.clone();
@@ -10359,7 +10119,6 @@ fn test_create_stream_start_time_in_past_panics() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     assert_eq!(result, Err(Ok(ContractError::StartTimeInPast)));
 }
@@ -10380,7 +10139,6 @@ fn test_create_stream_start_time_one_second_before_now_panics() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     assert_eq!(result, Err(Ok(ContractError::StartTimeInPast)));
 }
@@ -10401,7 +10159,6 @@ fn test_create_stream_start_time_far_in_past_panics() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     assert_eq!(result, Err(Ok(ContractError::StartTimeInPast)));
 }
@@ -10422,7 +10179,6 @@ fn test_create_stream_start_time_equals_now_succeeds() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     let state = ctx.client().get_stream_state(&stream_id);
     assert_eq!(state.start_time, 500);
@@ -10445,7 +10201,6 @@ fn test_create_stream_start_time_one_second_in_future_succeeds() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     let state = ctx.client().get_stream_state(&stream_id);
     assert_eq!(state.start_time, 501);
@@ -10468,7 +10223,6 @@ fn test_create_stream_start_time_future_succeeds() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     let state = ctx.client().get_stream_state(&stream_id);
     assert_eq!(state.start_time, 5000);
@@ -10493,7 +10247,6 @@ fn test_create_stream_start_time_zero_at_genesis_succeeds() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     let state = ctx.client().get_stream_state(&stream_id);
     assert_eq!(state.start_time, 0);
@@ -10523,7 +10276,6 @@ fn test_create_stream_past_start_no_token_transfer() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     assert_eq!(result, Err(Ok(ContractError::StartTimeInPast)));
 
@@ -10604,7 +10356,6 @@ fn test_get_withdrawable_after_partial_withdraw() {
 }
 
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_get_withdrawable_paused_stream_returns_zero() {
     let ctx = TestContext::setup();
     let stream_id = ctx.create_default_stream();
@@ -10857,7 +10608,6 @@ fn test_update_rate_per_second_increases_rate_and_preserves_accrual() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Mid-stream, record accrued with the original rate.
@@ -10937,7 +10687,6 @@ fn test_update_rate_per_second_rejects_cancelled_stream() {
 }
 
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_update_rate_per_second_works_on_paused_stream() {
     let ctx = TestContext::setup();
 
@@ -10954,7 +10703,6 @@ fn test_update_rate_per_second_works_on_paused_stream() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Pause the stream.
@@ -11009,7 +10757,6 @@ fn test_update_rate_per_second_rejects_rate_decrease() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Attempting to decrease rate from 5 → 3 must panic.
@@ -11033,7 +10780,6 @@ fn test_update_rate_per_second_before_cliff() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Before cliff at t=100, accrued is 0.
@@ -11072,7 +10818,6 @@ fn test_update_rate_per_second_at_cliff() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Exactly at cliff time t=500.
@@ -11121,7 +10866,6 @@ fn test_update_rate_per_second_near_end_time() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Near end at t=950.
@@ -11160,7 +10904,6 @@ fn test_update_rate_per_second_after_end_time() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // After end_time at t=1500.
@@ -11194,7 +10937,6 @@ fn test_update_rate_per_second_with_partial_withdrawal() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // At t=300, withdraw partial amount.
@@ -11236,7 +10978,6 @@ fn test_update_rate_per_second_emits_event() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Update rate from 1 → 5.
@@ -11267,7 +11008,6 @@ fn test_update_rate_per_second_emits_event() {
 }
 
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_update_rate_per_second_on_paused_stream_after_partial_withdrawal() {
     let ctx = TestContext::setup();
 
@@ -11284,7 +11024,6 @@ fn test_update_rate_per_second_on_paused_stream_after_partial_withdrawal() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // At t=300, withdraw partial amount.
@@ -11316,7 +11055,6 @@ fn test_update_rate_per_second_on_paused_stream_after_partial_withdrawal() {
 }
 
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_update_rate_per_second_after_partial_withdrawal_then_resume_and_withdraw() {
     let ctx = TestContext::setup();
 
@@ -11333,7 +11071,6 @@ fn test_update_rate_per_second_after_partial_withdrawal_then_resume_and_withdraw
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // At t=200, withdraw partial amount.
@@ -11401,7 +11138,6 @@ fn test_update_rate_per_second_unauthorized_caller() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Attempt to update rate as recipient (not sender) without proper auth.
@@ -11436,7 +11172,6 @@ fn test_update_rate_per_second_multiple_times() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // First update: 1 → 5.
@@ -11478,7 +11213,6 @@ fn test_update_rate_per_second_preserves_other_fields() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     let state_before = ctx.client().get_stream_state(&stream_id);
@@ -11518,7 +11252,6 @@ fn test_update_rate_per_second_with_overflow_protection() {
 }
 
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_update_rate_per_second_interaction_with_pause_resume() {
     let ctx = TestContext::setup();
 
@@ -11535,7 +11268,6 @@ fn test_update_rate_per_second_interaction_with_pause_resume() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Pause at t=100.
@@ -11574,7 +11306,6 @@ fn test_update_rate_per_second_exact_deposit_coverage() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Update to rate that exactly matches deposit.
@@ -11662,7 +11393,6 @@ fn test_shorten_stream_end_time_rejects_equal_or_later_end_time() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Equal old end_time is not a shorten.
@@ -11739,7 +11469,6 @@ fn test_shorten_stream_end_time_unauthorized_caller() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // No sender auth is provided for shorten; strict mode must trap.
@@ -11795,7 +11524,6 @@ fn test_shorten_stream_end_time_failed_call_has_no_side_effects() {
 }
 
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_shorten_stream_end_time_rejects_completed_and_cancelled_states() {
     let ctx = TestContext::setup();
 
@@ -11837,7 +11565,6 @@ fn test_extend_stream_end_time_preserves_accrued_and_allows_longer_accrual() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // At t=800, accrued should be 800.
@@ -11913,7 +11640,6 @@ fn test_recipient_stream_index_sorted_order() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     let id2 = ctx.client().create_stream(
@@ -11927,7 +11653,6 @@ fn test_recipient_stream_index_sorted_order() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     let id3 = ctx.client().create_stream(
@@ -11941,7 +11666,6 @@ fn test_recipient_stream_index_sorted_order() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Verify IDs are sequential
@@ -11982,7 +11706,6 @@ fn test_recipient_stream_count() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     assert_eq!(ctx.client().get_recipient_stream_count(&ctx.recipient), 2);
 
@@ -11998,7 +11721,6 @@ fn test_recipient_stream_count() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     assert_eq!(ctx.client().get_recipient_stream_count(&ctx.recipient), 3);
 }
@@ -12024,7 +11746,6 @@ fn test_recipient_stream_index_separate_per_recipient() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     let id2 = ctx.client().create_stream(
@@ -12038,7 +11759,6 @@ fn test_recipient_stream_index_separate_per_recipient() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     let id3 = ctx.client().create_stream(
@@ -12052,7 +11772,6 @@ fn test_recipient_stream_index_separate_per_recipient() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     let id4 = ctx.client().create_stream(
@@ -12066,7 +11785,6 @@ fn test_recipient_stream_index_separate_per_recipient() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Verify each recipient has the correct streams
@@ -12131,7 +11849,6 @@ fn test_recipient_stream_index_sorted_after_operations() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     let id1 = ctx.client().create_stream(
@@ -12145,7 +11862,6 @@ fn test_recipient_stream_index_sorted_after_operations() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     let _id2 = ctx.client().create_stream(
@@ -12159,7 +11875,6 @@ fn test_recipient_stream_index_sorted_after_operations() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Verify sorted order
@@ -12200,7 +11915,6 @@ fn test_recipient_stream_index_with_batch_withdraw() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     let id2 = ctx.client().create_stream(
         &ctx.sender,
@@ -12213,7 +11927,6 @@ fn test_recipient_stream_index_with_batch_withdraw() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Verify all streams are in the index
@@ -12237,7 +11950,6 @@ fn test_recipient_stream_index_with_batch_withdraw() {
 
 /// Test that the index is consistent after stream lifecycle operations.
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_recipient_stream_index_lifecycle_consistency() {
     let ctx = TestContext::setup();
     ctx.env.ledger().set_timestamp(0);
@@ -12344,7 +12056,6 @@ fn test_recipient_stream_index_many_streams() {
             &0,
             &None,
             &crate::StreamKind::Linear,
-            &None,
         );
     }
 
@@ -12406,7 +12117,6 @@ fn test_recipient_stream_index_multiple_senders() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     let id2 = ctx.client().create_stream(
@@ -12420,7 +12130,6 @@ fn test_recipient_stream_index_multiple_senders() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     let id3 = ctx.client().create_stream(
@@ -12434,7 +12143,6 @@ fn test_recipient_stream_index_multiple_senders() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Verify all streams are in the recipient's index
@@ -12778,7 +12486,6 @@ fn test_create_stream_contract_paused_returns_structured_error() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 }
 
@@ -12803,7 +12510,6 @@ fn test_create_streams_batch_contract_paused_returns_structured_error() {
             end_time: 1000,
             memo: None,
             metadata: None,
-            witness: None,
         }],
     );
 
@@ -12813,7 +12519,6 @@ fn test_create_streams_batch_contract_paused_returns_structured_error() {
 /// Verify that a global pause only blocks `create_stream`/`create_streams`,
 /// while operations on existing streams (withdraw, top-up, pause, cancel) succeed.
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_global_pause_does_not_affect_existing_streams() {
     let ctx = TestContext::setup();
     ctx.env.ledger().set_timestamp(0);
@@ -12830,7 +12535,6 @@ fn test_global_pause_does_not_affect_existing_streams() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Now admin pauses the contract
@@ -12881,7 +12585,6 @@ fn test_create_streams_batch_start_time_in_past_returns_structured_error() {
             end_time: 1500,
             memo: None,
             metadata: None,
-            witness: None,
         }],
     );
 
@@ -12929,7 +12632,6 @@ fn test_create_stream_rate_times_duration_overflow_panics_no_state_change() {
             &0,
             &None,
             &crate::StreamKind::Linear,
-            &None,
         )
     }));
 
@@ -12978,7 +12680,6 @@ fn test_create_stream_event_payload_matches_events_md_schema() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // The last event must be the StreamCreated event.
@@ -13019,7 +12720,6 @@ fn test_create_stream_past_start_emits_no_events() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     assert!(result.is_err());
 
@@ -13053,7 +12753,6 @@ fn test_create_stream_exact_minimum_deposit_stored_fields_are_exact() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     let state = ctx.client().get_stream_state(&stream_id);
@@ -13092,7 +12791,6 @@ fn test_create_stream_exact_minimum_deposit_stored_fields_are_exact() {
 /// - The admin requires no auth at creation time.
 ///   This is tested via setup_strict() where only mocked auths are honoured.
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_create_stream_only_sender_auth_required() {
     let ctx = TestContext::setup_strict();
 
@@ -13133,7 +12831,6 @@ fn test_create_stream_only_sender_auth_required() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     let state = ctx.client().get_stream_state(&stream_id);
@@ -13201,7 +12898,6 @@ fn test_extend_end_time_deposit_exactly_covers_new_duration() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Extend to 2000: rate(1) * new_duration(2000) == deposit(2000) — exact boundary
@@ -13232,7 +12928,6 @@ fn test_extend_end_time_deposit_exceeds_new_duration_requirement() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Extend to 3000: rate(1) * 3000 = 3000 < deposit(5000) — surplus remains
@@ -13245,7 +12940,6 @@ fn test_extend_end_time_deposit_exceeds_new_duration_requirement() {
 
 /// Extension on a Paused stream must succeed (non-terminal state).
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_extend_end_time_paused_stream_succeeds() {
     let ctx = TestContext::setup();
     ctx.env.ledger().set_timestamp(0);
@@ -13261,7 +12955,6 @@ fn test_extend_end_time_paused_stream_succeeds() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     ctx.client()
@@ -13299,7 +12992,6 @@ fn test_extend_end_time_accrual_unchanged_at_extension_time() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     ctx.env.ledger().set_timestamp(600);
@@ -13333,7 +13025,6 @@ fn test_extend_end_time_accrual_continues_to_new_end() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     ctx.client().extend_stream_end_time(&stream_id, &3000u64);
@@ -13374,7 +13065,6 @@ fn test_extend_end_time_recipient_can_withdraw_extended_accrual() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Withdraw up to old end_time
@@ -13418,7 +13108,6 @@ fn test_extend_end_time_after_top_up_succeeds() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Extension to 1500 would need 1500 tokens — currently blocked
@@ -13459,7 +13148,6 @@ fn test_extend_end_time_emits_correct_event() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     ctx.client().extend_stream_end_time(&stream_id, &2000u64);
@@ -13492,7 +13180,6 @@ fn test_extend_end_time_no_token_transfer() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     let sender_before = ctx.token().balance(&ctx.sender);
@@ -13525,7 +13212,6 @@ fn test_extend_end_time_deposit_one_short_rejected() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Extending to 1001 requires 1001 tokens; deposit is only 1000
@@ -13551,7 +13237,6 @@ fn test_extend_end_time_deposit_far_below_new_requirement_rejected() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Extending to 10000 requires 10000 tokens; deposit is only 1000
@@ -13578,7 +13263,6 @@ fn test_extend_end_time_completed_stream_rejected() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     ctx.env.ledger().set_timestamp(1000);
@@ -13610,7 +13294,6 @@ fn test_extend_end_time_cancelled_stream_rejected() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     ctx.client().cancel_stream(&stream_id);
@@ -13769,7 +13452,6 @@ fn test_get_recipient_streams_batch_create_updates_index() {
                 end_time: 500,
                 memo: None,
                 metadata: None,
-                witness: None,
             },
             CreateStreamParams {
                 kind: crate::StreamKind::Linear,
@@ -13782,7 +13464,6 @@ fn test_get_recipient_streams_batch_create_updates_index() {
                 end_time: 1000,
                 memo: None,
                 metadata: None,
-                witness: None,
             },
         ],
     );
@@ -13823,7 +13504,6 @@ fn test_get_recipient_streams_batch_create_separate_recipient_indices() {
                 end_time: 500,
                 memo: None,
                 metadata: None,
-                witness: None,
             },
             CreateStreamParams {
                 kind: crate::StreamKind::Linear,
@@ -13836,7 +13516,6 @@ fn test_get_recipient_streams_batch_create_separate_recipient_indices() {
                 end_time: 1000,
                 memo: None,
                 metadata: None,
-                witness: None,
             },
         ],
     );
@@ -13873,7 +13552,6 @@ fn test_get_recipient_streams_sorted_after_interleaved_close() {
             &0,
             &None,
             &crate::StreamKind::Linear,
-            &None,
         );
     }
 
@@ -13921,7 +13599,6 @@ fn test_get_recipient_stream_count_matches_list_len() {
             &0,
             &None,
             &crate::StreamKind::Linear,
-            &None,
         );
     }
     assert_eq!(
@@ -13975,7 +13652,6 @@ fn test_get_recipient_streams_ids_resolve_to_correct_recipient() {
             &0,
             &None,
             &crate::StreamKind::Linear,
-            &None,
         );
     }
 
@@ -14012,7 +13688,6 @@ fn test_get_recipient_streams_single_second_stream() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     assert_eq!(ctx.client().get_recipient_stream_count(&ctx.recipient), 1);
@@ -14086,7 +13761,6 @@ fn test_extend_end_time_same_end_time_rejected() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Same end_time — not an extension
@@ -14111,7 +13785,6 @@ fn test_extend_end_time_shorter_end_time_rejected() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     ctx.client().extend_stream_end_time(&stream_id, &500u64);
@@ -14158,7 +13831,6 @@ fn test_extend_end_time_recipient_unauthorized() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Recipient attempts to extend — must fail
@@ -14216,7 +13888,6 @@ fn test_extend_end_time_third_party_unauthorized() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     let other = Address::generate(&ctx.env);
@@ -14235,7 +13906,6 @@ fn test_extend_end_time_third_party_unauthorized() {
 
 /// Sender authorization succeeds (positive auth test).
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_extend_end_time_sender_authorized() {
     let ctx = TestContext::setup_strict();
 
@@ -14274,7 +13944,6 @@ fn test_extend_end_time_sender_authorized() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     ctx.env.mock_auths(&[MockAuth {
@@ -14317,7 +13986,6 @@ fn test_extend_end_time_overflow_panics_no_state_change() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     let end_before = ctx.client().get_stream_state(&stream_id).end_time;
@@ -14361,7 +14029,6 @@ fn test_extend_end_time_high_rate_exact_boundary() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Extend to 2 seconds: rate(1_000_000) * 2 = 2_000_000 == deposit — exact boundary
@@ -14391,7 +14058,6 @@ fn test_extend_end_time_failed_leaves_state_unchanged() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     let state_before = ctx.client().get_stream_state(&stream_id);
@@ -14426,7 +14092,6 @@ fn test_extend_end_time_failed_emits_no_event() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     let events_before = ctx.env.events().all().len();
@@ -14462,7 +14127,6 @@ fn test_extend_end_time_cliff_preserved() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     ctx.client().extend_stream_end_time(&stream_id, &3000u64);
@@ -14499,7 +14163,6 @@ fn test_extend_end_time_integration_full_withdrawal() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     ctx.client().extend_stream_end_time(&stream_id, &2000u64);
@@ -14576,7 +14239,6 @@ fn strict_create_stream(ctx: &TestContext) -> u64 {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     )
 }
 
@@ -14653,7 +14315,6 @@ fn test_resume_stream_third_party_unauthorized() {
 /// Verifies: auth accepted, status transitions Active → Paused → Active,
 /// and all other stream fields are unchanged.
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_resume_stream_sender_success_strict() {
     use soroban_sdk::{testutils::MockAuth, testutils::MockAuthInvoke, IntoVal};
 
@@ -14690,7 +14351,6 @@ fn test_resume_stream_sender_success_strict() {
 
 /// resume_stream must emit a Resumed event observable by integrators.
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_resume_stream_emits_resumed_event_strict() {
     use soroban_sdk::{testutils::MockAuth, testutils::MockAuthInvoke, IntoVal};
 
@@ -14724,7 +14384,6 @@ fn test_resume_stream_emits_resumed_event_strict() {
 /// The contract admin MUST be able to call resume_stream_as_admin successfully.
 /// Verifies: auth accepted, status transitions Paused → Active.
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_resume_stream_as_admin_success_strict() {
     use soroban_sdk::{testutils::MockAuth, testutils::MockAuthInvoke, IntoVal};
 
@@ -14853,7 +14512,6 @@ fn test_pause_completed_stream_panics() {
 /// pause_stream_as_admin on an already-Paused stream must be rejected.
 /// The admin path enforces the same Active-only precondition as the sender path.
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_pause_stream_as_admin_already_paused_fails() {
     let ctx = TestContext::setup();
     let stream_id = ctx.create_default_stream();
@@ -14962,7 +14620,6 @@ fn test_resume_stream_as_admin_cancelled_fails() {
 /// Sender pauses, admin resumes — cross-role lifecycle must work.
 /// Verifies that the two authorization paths are orthogonal and composable.
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_sender_pause_admin_resume_cross_path() {
     let ctx = TestContext::setup();
     let stream_id = ctx.create_default_stream();
@@ -14985,7 +14642,6 @@ fn test_sender_pause_admin_resume_cross_path() {
 
 /// Admin pauses, sender resumes — cross-role lifecycle must work.
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_admin_pause_sender_resume_cross_path() {
     let ctx = TestContext::setup();
     let stream_id = ctx.create_default_stream();
@@ -15010,7 +14666,6 @@ fn test_admin_pause_sender_resume_cross_path() {
 
 /// Admin can pause exactly at start_time.
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_admin_pause_at_start_time() {
     let ctx = TestContext::setup();
     let start_time = 100u64;
@@ -15025,7 +14680,6 @@ fn test_admin_pause_at_start_time() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     ctx.env.ledger().set_timestamp(start_time);
@@ -15039,7 +14693,6 @@ fn test_admin_pause_at_start_time() {
 
 /// Admin can pause exactly at cliff_time.
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_admin_pause_at_cliff_time() {
     let ctx = TestContext::setup();
     let cliff_time = 200u64;
@@ -15054,7 +14707,6 @@ fn test_admin_pause_at_cliff_time() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     ctx.env.ledger().set_timestamp(cliff_time);
@@ -15082,7 +14734,6 @@ fn test_admin_pause_at_end_time_fails() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     ctx.env.ledger().set_timestamp(end_time);
@@ -15097,7 +14748,6 @@ fn test_admin_pause_at_end_time_fails() {
 
 /// A paused stream can be withdrawn from if it's past end_time.
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_withdraw_from_paused_at_end_time() {
     let ctx = TestContext::setup();
     let end_time = 1_000u64;
@@ -15112,7 +14762,6 @@ fn test_withdraw_from_paused_at_end_time() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Pause at t=500
@@ -15141,7 +14790,6 @@ fn test_withdraw_from_paused_at_end_time() {
 /// pause_stream_as_admin must emit the same Paused event as the sender path.
 /// Integrators must not need to distinguish which path was used from events alone.
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_pause_stream_as_admin_emits_paused_event() {
     let ctx = TestContext::setup();
     let stream_id = ctx.create_default_stream();
@@ -15156,7 +14804,7 @@ fn test_pause_stream_as_admin_emits_paused_event() {
         paused_payload,
         StreamPaused {
             stream_id,
-            reason: soroban_sdk::String::from_str(&ctx.env, "Administrative")
+            reason: crate::PauseReason::Administrative
         },
         "pause_stream_as_admin must publish StreamPaused event"
     );
@@ -15164,7 +14812,6 @@ fn test_pause_stream_as_admin_emits_paused_event() {
 
 /// resume_stream_as_admin must emit the same Resumed event as the sender path.
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_resume_stream_as_admin_emits_resumed_event() {
     let ctx = TestContext::setup();
     let stream_id = ctx.create_default_stream();
@@ -15248,7 +14895,6 @@ fn test_pause_stream_as_admin_recipient_is_not_admin() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Recipient tries to use pause_stream_as_admin - must fail
@@ -15288,7 +14934,6 @@ fn test_pause_stream_as_admin_third_party_unauthorized() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Third party tries to use pause_stream_as_admin - must fail
@@ -15332,7 +14977,6 @@ fn test_resume_stream_as_admin_recipient_unauthorized() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Admin pauses the stream first
@@ -15374,7 +15018,6 @@ fn test_resume_stream_as_admin_third_party_unauthorized() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Admin pauses the stream first
@@ -15402,7 +15045,6 @@ fn test_resume_stream_as_admin_third_party_unauthorized() {
 
 /// Verify authorization matrix for pause operations.
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_pause_authorization_matrix() {
     let ctx = TestContext::setup();
 
@@ -15418,7 +15060,6 @@ fn test_pause_authorization_matrix() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Admin can pause
@@ -15433,7 +15074,6 @@ fn test_pause_authorization_matrix() {
 
 /// Verify authorization matrix for resume operations.
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_resume_authorization_matrix() {
     let ctx = TestContext::setup();
 
@@ -15449,7 +15089,6 @@ fn test_resume_authorization_matrix() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     ctx.client()
         .pause_stream_as_admin(&stream_id, &crate::PauseReason::Administrative);
@@ -15546,7 +15185,6 @@ fn regression_double_init_both_different_panics() {
 /// After a failed double-init, the original config must be completely unchanged.
 /// This verifies zero side-effects on both the `token` and `admin` fields.
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn regression_double_init_preserves_config_fields() {
     let env = Env::default();
     env.mock_all_auths();
@@ -15590,7 +15228,6 @@ fn regression_double_init_preserves_config_fields() {
 
 /// The stream counter (NextStreamId) must not change after a failed double-init.
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn regression_double_init_preserves_stream_counter() {
     let env = Env::default();
     env.mock_all_auths();
@@ -15660,7 +15297,6 @@ fn regression_double_init_repeated_attacks_do_not_degrade_contract() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     assert_eq!(stream_id, 0);
     assert_eq!(client.get_stream_count(), 1);
@@ -15716,7 +15352,6 @@ fn regression_double_init_existing_stream_survives() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Attempt re-init
@@ -15778,7 +15413,6 @@ fn regression_double_init_counter_continuity() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     let id1 = client.create_stream(
         &sender,
@@ -15791,7 +15425,6 @@ fn regression_double_init_counter_continuity() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     assert_eq!(id0, 0);
     assert_eq!(id1, 1);
@@ -15815,7 +15448,6 @@ fn regression_double_init_counter_continuity() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     assert_eq!(
         id2, 2,
@@ -15826,7 +15458,6 @@ fn regression_double_init_counter_continuity() {
 
 /// No events must be emitted during a failed re-init attempt.
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn regression_double_init_emits_no_events() {
     let env = Env::default();
     env.mock_all_auths();
@@ -15908,7 +15539,6 @@ fn regression_missing_config_create_stream_panics() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 }
 
@@ -15934,7 +15564,6 @@ fn regression_missing_config_create_streams_batch_panics() {
         end_time: 1000,
         memo: None,
         metadata: None,
-        witness: None,
     };
 
     env.ledger().set_timestamp(0);
@@ -16286,7 +15915,6 @@ fn regression_missing_config_withdraw_to_panics() {
 /// End-to-end scenario: full stream lifecycle works correctly when
 /// double-init attacks are interleaved at different lifecycle stages.
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn regression_double_init_interleaved_with_lifecycle() {
     let env = Env::default();
     env.mock_all_auths();
@@ -16321,7 +15949,6 @@ fn regression_double_init_interleaved_with_lifecycle() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     assert_eq!(stream_id, 0);
 
@@ -16374,7 +16001,6 @@ fn regression_double_init_interleaved_with_lifecycle() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
     assert_eq!(stream_id2, 1);
     assert_eq!(client.get_stream_count(), 2);
@@ -16762,7 +16388,6 @@ fn claimable_at_cancel_after_cliff() {
 /// Paused stream: get_claimable_at still simulates using the given timestamp
 /// (accrual is computed at `timestamp`, not frozen at pause time).
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn claimable_at_paused_stream_simulates_at_timestamp() {
     let ctx = TestContext::setup();
     let stream_id = ctx.create_default_stream();
@@ -16779,7 +16404,6 @@ fn claimable_at_paused_stream_simulates_at_timestamp() {
 
 /// Paused after partial withdraw: claimable deducts withdrawn.
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn claimable_at_paused_after_withdraw() {
     let ctx = TestContext::setup();
     let stream_id = ctx.create_default_stream();
@@ -17020,7 +16644,6 @@ fn claimable_at_cancel_ceiling_parametric() {
 /// statuses (Active, Paused, Cancelled, Completed) and only processes valid ones.
 /// This ensures the batch operation is robust against heterogeneous stream states.
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_batch_withdraw_mixed_stream_states_comprehensive() {
     let ctx = TestContext::setup();
     ctx.env.ledger().set_timestamp(0);
@@ -17037,7 +16660,6 @@ fn test_batch_withdraw_mixed_stream_states_comprehensive() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     let id_paused = ctx.client().create_stream(
@@ -17051,7 +16673,6 @@ fn test_batch_withdraw_mixed_stream_states_comprehensive() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     let id_cancelled = ctx.client().create_stream(
@@ -17065,7 +16686,6 @@ fn test_batch_withdraw_mixed_stream_states_comprehensive() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     let id_completed = ctx.client().create_stream(
@@ -17079,7 +16699,6 @@ fn test_batch_withdraw_mixed_stream_states_comprehensive() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     let id_active_2 = ctx.client().create_stream(
@@ -17093,7 +16712,6 @@ fn test_batch_withdraw_mixed_stream_states_comprehensive() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Set up different states
@@ -17214,7 +16832,6 @@ fn test_create_streams_batch_recipient_index_consistency() {
                 end_time: 2000,
                 memo: None,
                 metadata: None,
-                witness: None,
             },
             CreateStreamParams {
                 kind: crate::StreamKind::Linear,
@@ -17227,7 +16844,6 @@ fn test_create_streams_batch_recipient_index_consistency() {
                 end_time: 3000,
                 memo: None,
                 metadata: None,
-                witness: None,
             },
             CreateStreamParams {
                 kind: crate::StreamKind::Linear,
@@ -17240,7 +16856,6 @@ fn test_create_streams_batch_recipient_index_consistency() {
                 end_time: 2500,
                 memo: None,
                 metadata: None,
-                witness: None,
             },
             CreateStreamParams {
                 kind: crate::StreamKind::Linear,
@@ -17253,7 +16868,6 @@ fn test_create_streams_batch_recipient_index_consistency() {
                 end_time: 4000,
                 memo: None,
                 metadata: None,
-                witness: None,
             },
             CreateStreamParams {
                 kind: crate::StreamKind::Linear,
@@ -17266,7 +16880,6 @@ fn test_create_streams_batch_recipient_index_consistency() {
                 end_time: 3500,
                 memo: None,
                 metadata: None,
-                witness: None,
             },
         ],
     );
@@ -17334,7 +16947,6 @@ fn test_create_streams_batch_recipient_index_consistency() {
             end_time: 500,
             memo: None,
             metadata: None,
-            witness: None,
         }],
     );
 
@@ -17370,7 +16982,6 @@ fn test_create_stream_total_streamable_overflow() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     assert_eq!(result, Err(Ok(ContractError::InvalidParams)));
@@ -17397,7 +17008,6 @@ fn test_create_streams_batch_deposit_overflow() {
         end_time: 10,
         memo: None,
         metadata: None,
-        witness: None,
     });
 
     streams.push_back(CreateStreamParams {
@@ -17411,7 +17021,6 @@ fn test_create_streams_batch_deposit_overflow() {
         end_time: 10,
         memo: None,
         metadata: None,
-        witness: None,
     });
 
     let result = ctx.client().try_create_streams(&ctx.sender, &streams);
@@ -17440,7 +17049,6 @@ fn test_top_up_stream_overflow() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Top up by more than 100 should overflow
@@ -17489,14 +17097,17 @@ fn test_budget_single_withdraw_hot_path() {
     let cpu = ctx.env.budget().cpu_instruction_cost();
     let mem = ctx.env.budget().memory_bytes_cost();
 
-    // Guardrail: single withdraw must stay well under 1 M CPU instructions and 500 KB.
+    use crate::protocol_limits::{LIMITS, SOROBAN_PROTOCOL_VERSION};
+    // Guardrail: single withdraw must stay well under the protocol-derived CPU and memory ceilings.
     assert!(
-        cpu <= 1_000_000,
-        "single withdraw cpu={cpu} exceeds guardrail 1_000_000"
+        cpu <= LIMITS.single_withdraw_cpu_max,
+        "single withdraw cpu={cpu} exceeds protocol-{SOROBAN_PROTOCOL_VERSION} guardrail {}",
+        LIMITS.single_withdraw_cpu_max
     );
     assert!(
-        mem <= 500_000,
-        "single withdraw mem={mem} exceeds guardrail 500_000"
+        mem <= LIMITS.single_withdraw_mem_max,
+        "single withdraw mem={mem} exceeds protocol-{SOROBAN_PROTOCOL_VERSION} guardrail {}",
+        LIMITS.single_withdraw_mem_max
     );
 }
 
@@ -17552,7 +17163,6 @@ fn test_budget_batch_withdraw_10_streams() {
             &0,
             &None,
             &crate::StreamKind::Linear,
-            &None,
         );
         ids.push_back(id);
     }
@@ -17569,14 +17179,17 @@ fn test_budget_batch_withdraw_10_streams() {
     let cpu = ctx.env.budget().cpu_instruction_cost();
     let mem = ctx.env.budget().memory_bytes_cost();
 
-    // Guardrail: 10-stream batch must stay under 5 M CPU and 2 MB.
+    use crate::protocol_limits::{LIMITS, SOROBAN_PROTOCOL_VERSION};
+    // Guardrail: 10-stream batch must stay under protocol-derived CPU and memory ceilings.
     assert!(
-        cpu <= 5_000_000,
-        "batch_withdraw(10) cpu={cpu} exceeds guardrail 5_000_000"
+        cpu <= LIMITS.batch_withdraw_10_cpu_max,
+        "batch_withdraw(10) cpu={cpu} exceeds protocol-{SOROBAN_PROTOCOL_VERSION} guardrail {}",
+        LIMITS.batch_withdraw_10_cpu_max
     );
     assert!(
-        mem <= 2_000_000,
-        "batch_withdraw(10) mem={mem} exceeds guardrail 2_000_000"
+        mem <= LIMITS.batch_withdraw_10_mem_max,
+        "batch_withdraw(10) mem={mem} exceeds protocol-{SOROBAN_PROTOCOL_VERSION} guardrail {}",
+        LIMITS.batch_withdraw_10_mem_max
     );
 }
 
@@ -17601,7 +17214,6 @@ fn test_budget_batch_withdraw_cheaper_than_n_singles() {
             &0,
             &None,
             &crate::StreamKind::Linear,
-            &None,
         );
         ids.push_back(id);
     }
@@ -17732,7 +17344,6 @@ fn test_budget_create_streams_batch_5() {
             end_time: 1000,
             memo: None,
             metadata: None,
-            witness: None,
         });
     }
 
@@ -17744,14 +17355,17 @@ fn test_budget_create_streams_batch_5() {
     let cpu = ctx.env.budget().cpu_instruction_cost();
     let mem = ctx.env.budget().memory_bytes_cost();
 
-    // Guardrail: 5-stream batch create must stay under 3 M CPU and 1.5 MB.
+    use crate::protocol_limits::{LIMITS, SOROBAN_PROTOCOL_VERSION};
+    // Guardrail: 5-stream batch create must stay under protocol-derived CPU and memory ceilings.
     assert!(
-        cpu <= 3_000_000,
-        "create_streams(5) cpu={cpu} exceeds guardrail 3_000_000"
+        cpu <= LIMITS.create_streams_5_cpu_max,
+        "create_streams(5) cpu={cpu} exceeds protocol-{SOROBAN_PROTOCOL_VERSION} guardrail {}",
+        LIMITS.create_streams_5_cpu_max
     );
     assert!(
-        mem <= 1_500_000,
-        "create_streams(5) mem={mem} exceeds guardrail 1_500_000"
+        mem <= LIMITS.create_streams_5_mem_max,
+        "create_streams(5) mem={mem} exceeds protocol-{SOROBAN_PROTOCOL_VERSION} guardrail {}",
+        LIMITS.create_streams_5_mem_max
     );
 }
 
@@ -17773,7 +17387,6 @@ fn test_create_streams_batch_atomicity_on_invalid_entry() {
         end_time: 1000,
         memo: None,
         metadata: None,
-        witness: None,
     };
     // deposit < rate * duration → InsufficientDeposit
     let invalid = CreateStreamParams {
@@ -17787,7 +17400,6 @@ fn test_create_streams_batch_atomicity_on_invalid_entry() {
         end_time: 1000,
         memo: None,
         metadata: None,
-        witness: None,
     };
 
     let count_before = ctx.client().get_stream_count();
@@ -17830,7 +17442,6 @@ fn test_create_streams_single_entry_matches_create_stream() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     // Single-entry create_streams
@@ -17846,7 +17457,6 @@ fn test_create_streams_single_entry_matches_create_stream() {
         end_time: 1000,
         memo: None,
         metadata: None,
-        witness: None,
     });
     let ids = ctx.client().create_streams(&ctx.sender, &params);
     let id_batch = ids.get(0).unwrap();
@@ -17888,7 +17498,6 @@ fn test_create_streams_batch_deposit_overflow_is_atomic() {
             end_time: duration,
             memo: None,
             metadata: None,
-            witness: None,
         });
     }
 
@@ -17949,7 +17558,6 @@ mod negative_pause_resume_auth {
             &0,
             &None,
             &crate::StreamKind::Linear,
-            &None,
         );
         (ctx, stream_id)
     }
@@ -18062,7 +17670,6 @@ mod negative_pause_resume_auth {
     // -----------------------------------------------------------------------
 
     #[test]
-    #[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
     fn resume_stream_recipient_rejected_no_side_effects() {
         let (ctx, stream_id) = setup_active_stream();
         // First pause the stream as sender
@@ -18094,7 +17701,6 @@ mod negative_pause_resume_auth {
     // -----------------------------------------------------------------------
 
     #[test]
-    #[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
     fn resume_stream_third_party_rejected_no_side_effects() {
         let (ctx, stream_id) = setup_active_stream();
         ctx.env.mock_all_auths();
@@ -18126,7 +17732,6 @@ mod negative_pause_resume_auth {
     // -----------------------------------------------------------------------
 
     #[test]
-    #[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
     fn resume_stream_admin_on_sender_path_rejected() {
         let (ctx, stream_id) = setup_active_stream();
         ctx.env.mock_all_auths();
@@ -18211,7 +17816,6 @@ mod negative_pause_resume_auth {
     // -----------------------------------------------------------------------
 
     #[test]
-    #[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
     fn resume_stream_as_admin_sender_rejected() {
         let (ctx, stream_id) = setup_active_stream();
         ctx.env.mock_all_auths();
@@ -18242,7 +17846,6 @@ mod negative_pause_resume_auth {
     // -----------------------------------------------------------------------
 
     #[test]
-    #[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
     fn resume_stream_as_admin_recipient_rejected() {
         let (ctx, stream_id) = setup_active_stream();
         ctx.env.mock_all_auths();
@@ -18273,7 +17876,6 @@ mod negative_pause_resume_auth {
     // -----------------------------------------------------------------------
 
     #[test]
-    #[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
     fn sender_can_pause_and_resume() {
         let (ctx, stream_id) = setup_active_stream();
         ctx.env.mock_all_auths();
@@ -18292,7 +17894,6 @@ mod negative_pause_resume_auth {
     }
 
     #[test]
-    #[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
     fn admin_can_pause_and_resume_via_admin_paths() {
         let (ctx, stream_id) = setup_active_stream();
         ctx.env.mock_all_auths();
@@ -18391,7 +17992,6 @@ mod i128_boundary_streams {
             &0,
             &None,
             &crate::StreamKind::Linear,
-            &None,
         );
 
         let state = client.get_stream_state(&stream_id);
@@ -18424,7 +18024,6 @@ mod i128_boundary_streams {
             &0,
             &None,
             &crate::StreamKind::Linear,
-            &None,
         );
 
         let state = client.get_stream_state(&stream_id);
@@ -18452,7 +18051,6 @@ mod i128_boundary_streams {
             &0,
             &None,
             &crate::StreamKind::Linear,
-            &None,
         );
 
         let events = env.events().all();
@@ -18491,7 +18089,6 @@ mod i128_boundary_streams {
             &0,
             &None,
             &crate::StreamKind::Linear,
-            &None,
         );
 
         assert_eq!(result, Err(Ok(ContractError::InvalidParams)));
@@ -18530,7 +18127,6 @@ mod i128_boundary_streams {
             &0,
             &None,
             &crate::StreamKind::Linear,
-            &None,
         );
 
         assert_eq!(result, Err(Ok(ContractError::InsufficientDeposit)));
@@ -18563,7 +18159,6 @@ mod i128_boundary_streams {
             &0,
             &None,
             &crate::StreamKind::Linear,
-            &None,
         );
 
         let accrued = client.calculate_accrued(&stream_id);
@@ -18588,7 +18183,6 @@ mod i128_boundary_streams {
             &0,
             &None,
             &crate::StreamKind::Linear,
-            &None,
         );
 
         env.ledger().set_timestamp(1);
@@ -18614,7 +18208,6 @@ mod i128_boundary_streams {
             &0,
             &None,
             &crate::StreamKind::Linear,
-            &None,
         );
 
         env.ledger().set_timestamp(u64::MAX / 2);
@@ -18642,7 +18235,6 @@ mod i128_boundary_streams {
             &0,
             &None,
             &crate::StreamKind::Linear,
-            &None,
         );
 
         env.ledger().set_timestamp(499);
@@ -18670,7 +18262,6 @@ mod i128_boundary_streams {
             &0,
             &None,
             &crate::StreamKind::Linear,
-            &None,
         );
 
         env.ledger().set_timestamp(500);
@@ -18710,7 +18301,6 @@ mod i128_boundary_streams {
             &0,
             &None,
             &crate::StreamKind::Linear,
-            &None,
         );
 
         // Set time far past end — elapsed is capped at end_time=1, no overflow possible
@@ -18745,7 +18335,6 @@ mod i128_boundary_streams {
             &0,
             &None,
             &crate::StreamKind::Linear,
-            &None,
         );
 
         env.ledger().set_timestamp(1);
@@ -18778,7 +18367,6 @@ mod i128_boundary_streams {
             &0,
             &None,
             &crate::StreamKind::Linear,
-            &None,
         );
 
         env.ledger().set_timestamp(1);
@@ -18824,7 +18412,6 @@ mod i128_boundary_streams {
             &0,
             &None,
             &crate::StreamKind::Linear,
-            &None,
         );
 
         // First withdrawal at t=400
@@ -18875,7 +18462,6 @@ mod i128_boundary_streams {
             &0,
             &None,
             &crate::StreamKind::Linear,
-            &None,
         );
 
         // Cancel immediately at t=0
@@ -18910,7 +18496,6 @@ mod i128_boundary_streams {
             &0,
             &None,
             &crate::StreamKind::Linear,
-            &None,
         );
 
         env.ledger().set_timestamp(500);
@@ -18951,7 +18536,6 @@ mod i128_boundary_streams {
             &0,
             &None,
             &crate::StreamKind::Linear,
-            &None,
         );
 
         env.ledger().set_timestamp(300);
@@ -18988,7 +18572,6 @@ mod i128_boundary_streams {
             &0,
             &None,
             &crate::StreamKind::Linear,
-            &None,
         );
 
         env.ledger().set_timestamp(700);
@@ -19028,7 +18611,6 @@ mod i128_boundary_streams {
             &0,
             &None,
             &crate::StreamKind::Linear,
-            &None,
         );
 
         // Sender can cancel — must succeed
@@ -19060,7 +18642,6 @@ mod i128_boundary_streams {
             &0,
             &None,
             &crate::StreamKind::Linear,
-            &None,
         );
 
         env.ledger().set_timestamp(500);
@@ -19075,7 +18656,6 @@ mod i128_boundary_streams {
 
     /// Pausing a near-max stream does not affect accrual calculation.
     #[test]
-    #[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
     fn near_max_deposit_pause_does_not_affect_accrual() {
         let large_deposit: i128 = i128::MAX / 1_000_000;
         let rate: i128 = large_deposit / 1_000;
@@ -19094,7 +18674,6 @@ mod i128_boundary_streams {
             &0,
             &None,
             &crate::StreamKind::Linear,
-            &None,
         );
 
         env.ledger().set_timestamp(200);
@@ -19108,7 +18687,6 @@ mod i128_boundary_streams {
 
     /// After resume, recipient can withdraw full accrued amount including pause period.
     #[test]
-    #[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
     fn near_max_deposit_resume_allows_withdrawal_of_full_accrued() {
         let large_deposit: i128 = i128::MAX / 1_000_000;
         let rate: i128 = large_deposit / 1_000;
@@ -19128,7 +18706,6 @@ mod i128_boundary_streams {
             &0,
             &None,
             &crate::StreamKind::Linear,
-            &None,
         );
 
         env.ledger().set_timestamp(300);
@@ -19174,7 +18751,6 @@ mod i128_boundary_streams {
                 end_time: 1,
                 memo: None,
                 metadata: None,
-                witness: None,
             });
         }
 
@@ -19216,7 +18792,6 @@ mod i128_boundary_streams {
             end_time: 1_000,
             memo: None,
             metadata: None,
-            witness: None,
         };
         // Invalid: deposit < rate * duration
         let invalid = CreateStreamParams {
@@ -19230,7 +18805,6 @@ mod i128_boundary_streams {
             end_time: 1_000,
             memo: None,
             metadata: None,
-            witness: None,
         };
 
         let params = soroban_sdk::vec![&env, valid, invalid];
@@ -19264,7 +18838,6 @@ mod i128_boundary_streams {
             &0,
             &None,
             &crate::StreamKind::Linear,
-            &None,
         );
 
         // Partial withdrawal at t=300
@@ -19315,7 +18888,6 @@ mod recipient_index_stress {
                     end_time: 1100,
                     memo: None,
                     metadata: None,
-                    witness: None,
                 });
             }
             ctx.client().create_streams(&ctx.sender, &streams);
@@ -19372,7 +18944,6 @@ mod recipient_index_stress {
                 &0,
                 &None,
                 &crate::StreamKind::Linear,
-                &None,
             );
             stream_ids.push_back(id);
         }
@@ -19440,7 +19011,6 @@ mod recipient_index_stress {
                 &0,
                 &None,
                 &crate::StreamKind::Linear,
-                &None,
             );
             ids.push_back(id);
         }
@@ -19472,7 +19042,6 @@ mod recipient_index_stress {
             &0,
             &None,
             &crate::StreamKind::Linear,
-            &None,
         );
 
         // Range with start > end returns empty
@@ -19501,7 +19070,6 @@ mod recipient_index_stress {
                 &0,
                 &None,
                 &crate::StreamKind::Linear,
-                &None,
             );
         }
 
@@ -19532,7 +19100,6 @@ mod recipient_index_stress {
                 &0,
                 &None,
                 &crate::StreamKind::Linear,
-                &None,
             );
         }
 
@@ -19567,7 +19134,6 @@ mod recipient_index_stress {
                 &0,
                 &None,
                 &crate::StreamKind::Linear,
-                &None,
             );
         }
 
@@ -19595,7 +19161,6 @@ mod recipient_index_stress {
             &0,
             &None,
             &crate::StreamKind::Linear,
-            &None,
         );
 
         let streams = ctx.client().get_streams_by_id_range(&0, &10, &0);
@@ -19622,7 +19187,6 @@ mod recipient_index_stress {
                 &0,
                 &None,
                 &crate::StreamKind::Linear,
-                &None,
             );
         }
 
@@ -19630,38 +19194,38 @@ mod recipient_index_stress {
         let page1 = ctx
             .client()
             .get_recipient_streams_paginated(&recipient, &0, &3);
-        assert_eq!(page1.stream_ids.len(), 3);
-        assert_eq!(page1.stream_ids.get(0).unwrap(), 0);
-        assert_eq!(page1.stream_ids.get(1).unwrap(), 1);
-        assert_eq!(page1.stream_ids.get(2).unwrap(), 2);
+        assert_eq!(page1.len(), 3);
+        assert_eq!(page1.get(0).unwrap(), 0);
+        assert_eq!(page1.get(1).unwrap(), 1);
+        assert_eq!(page1.get(2).unwrap(), 2);
 
         // Page 2: cursor=3, limit=3
         let page2 = ctx
             .client()
             .get_recipient_streams_paginated(&recipient, &3, &3);
-        assert_eq!(page2.stream_ids.len(), 3);
-        assert_eq!(page2.stream_ids.get(0).unwrap(), 3);
-        assert_eq!(page2.stream_ids.get(1).unwrap(), 4);
-        assert_eq!(page2.stream_ids.get(2).unwrap(), 5);
+        assert_eq!(page2.len(), 3);
+        assert_eq!(page2.get(0).unwrap(), 3);
+        assert_eq!(page2.get(1).unwrap(), 4);
+        assert_eq!(page2.get(2).unwrap(), 5);
 
         // Page 3: cursor=6, limit=3 (only 4 left)
         let page3 = ctx
             .client()
             .get_recipient_streams_paginated(&recipient, &6, &3);
-        assert_eq!(page3.stream_ids.len(), 3);
+        assert_eq!(page3.len(), 3);
 
         // Page 4: cursor=9, limit=3 (only 1 left)
         let page4 = ctx
             .client()
             .get_recipient_streams_paginated(&recipient, &9, &3);
-        assert_eq!(page4.stream_ids.len(), 1);
-        assert_eq!(page4.stream_ids.get(0).unwrap(), 9);
+        assert_eq!(page4.len(), 1);
+        assert_eq!(page4.get(0).unwrap(), 9);
 
         // Page 5: cursor=10, should be empty (past end)
         let page5 = ctx
             .client()
             .get_recipient_streams_paginated(&recipient, &10, &3);
-        assert_eq!(page5.stream_ids.len(), 0);
+        assert_eq!(page5.len(), 0);
     }
 
     #[test]
@@ -19687,7 +19251,6 @@ mod recipient_index_stress {
                 &0,
                 &None,
                 &crate::StreamKind::Linear,
-                &None,
             );
         }
 
@@ -19695,11 +19258,7 @@ mod recipient_index_stress {
         let page = ctx
             .client()
             .get_recipient_streams_paginated(&recipient, &0, &200);
-        assert_eq!(
-            page.stream_ids.len(),
-            100,
-            "Should respect MAX_PAGE_SIZE of 100"
-        );
+        assert_eq!(page.len(), 100, "Should respect MAX_PAGE_SIZE of 100");
     }
 
     #[test]
@@ -19719,18 +19278,13 @@ mod recipient_index_stress {
             &0,
             &None,
             &crate::StreamKind::Linear,
-            &None,
         );
 
         // Cursor beyond total count
         let result = ctx
             .client()
             .get_recipient_streams_paginated(&recipient, &100, &10);
-        assert_eq!(
-            result.stream_ids.len(),
-            0,
-            "Should return empty when cursor >= total"
-        );
+        assert_eq!(result.len(), 0, "Should return empty when cursor >= total");
     }
 
     #[test]
@@ -19750,13 +19304,12 @@ mod recipient_index_stress {
             &0,
             &None,
             &crate::StreamKind::Linear,
-            &None,
         );
 
         let result = ctx
             .client()
             .get_recipient_streams_paginated(&recipient, &0, &0);
-        assert_eq!(result.stream_ids.len(), 0, "Zero limit should return empty");
+        assert_eq!(result.len(), 0, "Zero limit should return empty");
     }
 
     #[test]
@@ -19780,7 +19333,6 @@ mod recipient_index_stress {
                 &0,
                 &None,
                 &crate::StreamKind::Linear,
-                &None,
             );
         }
 
@@ -19797,7 +19349,6 @@ mod recipient_index_stress {
                 &0,
                 &None,
                 &crate::StreamKind::Linear,
-                &None,
             );
         }
 
@@ -19805,13 +19356,13 @@ mod recipient_index_stress {
         let page1 = ctx
             .client()
             .get_recipient_streams_paginated(&recipient1, &0, &10);
-        assert_eq!(page1.stream_ids.len(), 5);
+        assert_eq!(page1.len(), 5);
 
         // Paginate recipient2
         let page2 = ctx
             .client()
             .get_recipient_streams_paginated(&recipient2, &0, &10);
-        assert_eq!(page2.stream_ids.len(), 3);
+        assert_eq!(page2.len(), 3);
     }
 
     #[test]
@@ -19834,7 +19385,6 @@ mod recipient_index_stress {
                 &0,
                 &None,
                 &crate::StreamKind::Linear,
-                &None,
             );
         }
 
@@ -19851,17 +19401,17 @@ mod recipient_index_stress {
         let page1 = ctx
             .client()
             .get_recipient_streams_paginated(&recipient, &0, &2);
-        assert_eq!(page1.stream_ids.len(), 2);
-        assert_eq!(page1.stream_ids.get(0).unwrap(), 0);
-        assert_eq!(page1.stream_ids.get(1).unwrap(), 1);
+        assert_eq!(page1.len(), 2);
+        assert_eq!(page1.get(0).unwrap(), 0);
+        assert_eq!(page1.get(1).unwrap(), 1);
 
         // Next page should start with 3 (not 2, which is closed)
         let page2 = ctx
             .client()
             .get_recipient_streams_paginated(&recipient, &2, &2);
-        assert_eq!(page2.stream_ids.len(), 2);
-        assert_eq!(page2.stream_ids.get(0).unwrap(), 3);
-        assert_eq!(page2.stream_ids.get(1).unwrap(), 4);
+        assert_eq!(page2.len(), 2);
+        assert_eq!(page2.get(0).unwrap(), 3);
+        assert_eq!(page2.get(1).unwrap(), 4);
     }
 
     #[test]
@@ -19884,26 +19434,25 @@ mod recipient_index_stress {
                 &0,
                 &None,
                 &crate::StreamKind::Linear,
-                &None,
             );
         }
 
         // Simulate full export using pagination
         let mut all_stream_ids = Vec::new(&ctx.env);
         let mut cursor = 0u64;
-        let page_size = 10u32;
+        let page_size = 10u64;
 
         loop {
             let page = ctx
                 .client()
                 .get_recipient_streams_paginated(&recipient, &cursor, &page_size);
-            if page.stream_ids.is_empty() {
+            if page.is_empty() {
                 break;
             }
-            for id in page.stream_ids.iter() {
+            for id in page.iter() {
                 all_stream_ids.push_back(id);
             }
-            cursor += page.stream_ids.len() as u64;
+            cursor += page.len() as u64;
         }
 
         assert_eq!(all_stream_ids.len(), 25, "Should export all 25 streams");
@@ -19935,7 +19484,6 @@ mod recipient_index_stress {
                 &0,
                 &None,
                 &crate::StreamKind::Linear,
-                &None,
             );
         }
 
@@ -19976,7 +19524,6 @@ mod structured_error_tests {
             &0,
             &None,
             &crate::StreamKind::Linear,
-            &None,
         );
 
         ctx.env.ledger().set_timestamp(500);
@@ -20019,7 +19566,6 @@ mod structured_error_tests {
                 end_time: 100u64,
                 memo: None,
                 metadata: None,
-                witness: None,
             },
             CreateStreamParams {
                 kind: crate::StreamKind::Linear,
@@ -20032,7 +19578,6 @@ mod structured_error_tests {
                 end_time: 100u64,
                 memo: None,
                 metadata: None,
-                witness: None,
             },
         ];
 
@@ -20070,7 +19615,6 @@ mod structured_error_tests {
             &0,
             &None,
             &crate::StreamKind::Linear,
-            &None,
         );
 
         // new_rate * large_end overflows i128
@@ -20103,7 +19647,6 @@ mod structured_error_tests {
             &0,
             &None,
             &crate::StreamKind::Linear,
-            &None,
         );
 
         ctx.env.ledger().set_timestamp(500);
@@ -20134,7 +19677,6 @@ mod structured_error_tests {
             &0,
             &None,
             &crate::StreamKind::Linear,
-            &None,
         );
 
         client.set_global_emergency_paused(&true);
@@ -20165,7 +19707,6 @@ mod structured_error_tests {
             &0,
             &None,
             &crate::StreamKind::Linear,
-            &None,
         );
 
         ctx.env.ledger().set_timestamp(500);
@@ -20207,7 +19748,6 @@ mod structured_error_tests {
             &0,
             &None,
             &crate::StreamKind::Linear,
-            &None,
         );
 
         client.set_global_emergency_paused(&true);
@@ -20272,7 +19812,6 @@ fn test_batch_withdraw_non_adjacent_duplicates_rejected() {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     );
 
     ctx.env.ledger().set_timestamp(300);
@@ -20575,7 +20114,6 @@ fn make_stream_end_1000(ctx: &TestContext) -> u64 {
         &0,
         &None,
         &crate::StreamKind::Linear,
-        &None,
     )
 }
 
@@ -20583,7 +20121,6 @@ fn make_stream_end_1000(ctx: &TestContext) -> u64 {
 
 /// T = end_time - 1: Active stream is still live; pause must succeed.
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_pause_active_one_before_end_time_succeeds() {
     let ctx = TestContext::setup();
     let stream_id = make_stream_end_1000(&ctx);
@@ -20637,7 +20174,6 @@ fn test_pause_active_one_after_end_time_returns_terminal_state() {
 
 /// T = end_time - 1: Paused stream is still live; resume must succeed.
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_resume_paused_one_before_end_time_succeeds() {
     let ctx = TestContext::setup();
     let stream_id = make_stream_end_1000(&ctx);
@@ -20658,7 +20194,6 @@ fn test_resume_paused_one_before_end_time_succeeds() {
 
 /// T = end_time: Paused stream is time-terminal; resume must return StreamTerminalState.
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_resume_paused_at_end_time_returns_terminal_state() {
     let ctx = TestContext::setup();
     let stream_id = make_stream_end_1000(&ctx);
@@ -20678,7 +20213,6 @@ fn test_resume_paused_at_end_time_returns_terminal_state() {
 
 /// T = end_time + 1: Paused stream is past end; resume must return StreamTerminalState.
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_resume_paused_one_after_end_time_returns_terminal_state() {
     let ctx = TestContext::setup();
     let stream_id = make_stream_end_1000(&ctx);
@@ -20700,7 +20234,6 @@ fn test_resume_paused_one_after_end_time_returns_terminal_state() {
 
 /// T = end_time - 1: Admin pause on Active stream must succeed.
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_admin_pause_active_one_before_end_time_succeeds() {
     let ctx = TestContext::setup();
     let stream_id = make_stream_end_1000(&ctx);
@@ -20754,7 +20287,6 @@ fn test_admin_pause_active_one_after_end_time_returns_terminal_state() {
 
 /// T = end_time - 1: Admin resume on Paused stream must succeed.
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_admin_resume_paused_one_before_end_time_succeeds() {
     let ctx = TestContext::setup();
     let stream_id = make_stream_end_1000(&ctx);
@@ -20775,7 +20307,6 @@ fn test_admin_resume_paused_one_before_end_time_succeeds() {
 
 /// T = end_time: Admin resume on Paused stream must return StreamTerminalState.
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_admin_resume_paused_at_end_time_returns_terminal_state() {
     let ctx = TestContext::setup();
     let stream_id = make_stream_end_1000(&ctx);
@@ -20795,7 +20326,6 @@ fn test_admin_resume_paused_at_end_time_returns_terminal_state() {
 
 /// T = end_time + 1: Admin resume on Paused stream must return StreamTerminalState.
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_admin_resume_paused_one_after_end_time_returns_terminal_state() {
     let ctx = TestContext::setup();
     let stream_id = make_stream_end_1000(&ctx);
@@ -20835,7 +20365,6 @@ fn test_withdraw_active_at_end_time_succeeds() {
 
 /// Paused stream at end_time: withdrawal must succeed despite Paused status.
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_withdraw_paused_at_end_time_succeeds() {
     let ctx = TestContext::setup();
     let stream_id = make_stream_end_1000(&ctx);
@@ -20858,7 +20387,6 @@ fn test_withdraw_paused_at_end_time_succeeds() {
 
 /// Paused stream past end_time: withdrawal must succeed.
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_withdraw_paused_past_end_time_succeeds() {
     let ctx = TestContext::setup();
     let stream_id = make_stream_end_1000(&ctx);
@@ -20905,7 +20433,6 @@ fn test_pause_at_end_time_leaves_state_unchanged() {
 
 /// A rejected resume at end_time must leave stream state unchanged.
 #[test]
-#[ignore = "pre-existing failure predating CI restoration; workspace didn't compile until now so this was never exercised -- see the note above `mod test;` in lib.rs. Needs dedicated triage."]
 fn test_resume_at_end_time_leaves_state_unchanged() {
     let ctx = TestContext::setup();
     let stream_id = make_stream_end_1000(&ctx);
@@ -21018,93 +20545,8 @@ fn test_contract_error_discriminants_are_stable() {
         "BelowMinimumAmount must be 16"
     );
     assert_eq!(
-        ContractError::ReservationCountZero as u32,
-        17,
-        "ReservationCountZero must be 17"
-    );
-    assert_eq!(
-        ContractError::ReservationLimitExceeded as u32,
-        18,
-        "ReservationLimitExceeded must be 18"
-    );
-    assert_eq!(
-        ContractError::SignatureDeadlineExpired as u32,
-        19,
-        "SignatureDeadlineExpired must be 19"
-    );
-    assert_eq!(
-        ContractError::TemplateNotFound as u32,
-        20,
-        "TemplateNotFound must be 20"
-    );
-    assert_eq!(
-        ContractError::TemplateLimitExceeded as u32,
-        21,
-        "TemplateLimitExceeded must be 21"
-    );
-    assert_eq!(
-        ContractError::TemplateUnauthorized as u32,
-        22,
-        "TemplateUnauthorized must be 22"
-    );
-    assert_eq!(
-        ContractError::TokenVerificationFailed as u32,
-        23,
-        "TokenVerificationFailed must be 23"
-    );
-    assert_eq!(
-        ContractError::ReservationNotFound as u32,
-        24,
-        "ReservationNotFound must be 24"
-    );
-    assert_eq!(
-        ContractError::ReservationNotExpirable as u32,
-        25,
-        "ReservationNotExpirable must be 25"
-    );
-    assert_eq!(
-        ContractError::ReservationStillActive as u32,
-        26,
-        "ReservationStillActive must be 26"
-    );
-    assert_eq!(
-        ContractError::PauseReasonTooLong as u32,
-        27,
-        "PauseReasonTooLong must be 27"
-    );
-    assert_eq!(
         ContractError::ClockRegression as u32,
-        28,
-        "ClockRegression must be 28"
-    );
-    assert_eq!(
-        ContractError::MetadataTooLarge as u32,
-        29,
-        "MetadataTooLarge must be 29"
-    );
-    assert_eq!(
-        ContractError::UnsupportedStreamKind as u32,
-        30,
-        "UnsupportedStreamKind must be 30"
-    );
-    assert_eq!(
-        ContractError::RateCapExceeded as u32,
-        31,
-        "RateCapExceeded must be 31"
-    );
-    assert_eq!(
-        ContractError::PauseCooldownActive as u32,
-        32,
-        "PauseCooldownActive must be 32"
-    );
-    assert_eq!(
-        ContractError::WithdrawalTooFrequent as u32,
-        33,
-        "WithdrawalTooFrequent must be 33"
-    );
-    assert_eq!(
-        ContractError::KeeperGracePeriodNotElapsed as u32,
-        34,
-        "KeeperGracePeriodNotElapsed must be 34"
+        17,
+        "ClockRegression must be 17"
     );
 }
