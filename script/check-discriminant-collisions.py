@@ -1,383 +1,190 @@
 #!/usr/bin/env python3
+"""Audit ContractError discriminants for collisions.
+
+Parses discriminant tables from docs/error.md and fails if any
+intra-section collision exists (same code, different variant name, same enum).
+Cross-section overlaps are printed as warnings but do not fail.
 """
-script/check-discriminant-collisions.py
-========================================
-
-Cross-file discriminant-collision audit for docs/error.md.
-
-Parses the discriminant tables from all three contract sections of
-docs/error.md (ContractError / stream, FactoryError / factory, and
-GovernanceError / governance) and reports:
-
-  1. Intra-section collisions — two *different* variant names assigned the
-     same numeric code within one enum (a docs bug, not necessarily a code
-     bug, because Soroban/Rust forbids duplicate discriminants at the source
-     level).
-
-  2. Cross-section collisions — the same numeric code appears in more than
-     one section.  This is only a real runtime problem when a shared off-chain
-     decoder routes both error namespaces through a single code-to-message
-     lookup; the script documents the finding either way.
-
-  3. Out-of-order entries — discriminant values are not monotonically
-     increasing within a section (can indicate a cut-paste mistake).
-
-Usage
------
-    python3 script/check-discriminant-collisions.py [--docs PATH]
-
-    --docs PATH   Path to docs/error.md (default: docs/error.md relative to
-                  the repo root, auto-detected from this script's location).
-
-Exit codes
-----------
-    0  No intra-section collisions found (cross-section overlaps are printed
-       as warnings but do NOT cause a non-zero exit, because overlap across
-       independent enums is permitted when no shared decoder exists).
-    1  At least one intra-section collision (same code, different name, same
-       enum) was found — this is always a documentation error.
-    2  The docs file could not be read or no discriminant tables were found.
-"""
-
-from __future__ import annotations
 
 import argparse
 import re
 import sys
 from collections import defaultdict
+from typing import NamedTuple
 from pathlib import Path
-from typing import Dict, List, NamedTuple, Tuple
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
-# ---------------------------------------------------------------------------
-# Data types
-# ---------------------------------------------------------------------------
 
 class Entry(NamedTuple):
-    """One row from a discriminant table."""
     code: int
     name: str
-    line_no: int  # 1-based line number in the source file (for diagnostics)
+    line_no: int
 
 
-Section = Dict[str, List[Entry]]  # section_label → list of entries
-
-
-# ---------------------------------------------------------------------------
-# Parsing
-# ---------------------------------------------------------------------------
-
-# Matches a Markdown table row of the form:
-#
-#   | 1 | `AlreadyInitialized` | ...
-#   | `StreamNotFound` | 1 | ...
-#
-# The two supported column orderings are:
-#   (a) numeric discriminant first, then backtick-quoted variant name
-#   (b) backtick-quoted variant name first, then numeric discriminant
-#
-# Rows that match neither pattern are silently skipped.
-
-_ROW_DISC_FIRST   = re.compile(r"^\|\s*(\d+)\s*\|\s*`([A-Za-z_][A-Za-z0-9_]*)`")
-_ROW_NAME_FIRST   = re.compile(r"^\|\s*`([A-Za-z_][A-Za-z0-9_]*)`\s*\|\s*(\d+)\s*\|")
-
-# Markdown table separator row (the |---|---| divider line).
-_TABLE_SEP = re.compile(r"^\|[-|: ]+\|")
-
-# Column-header rows that identify a *discriminant* table vs. a plain enum table.
-# We only parse rows from tables whose header contains one of these keywords.
-_DISC_HEADER_KEYWORDS = re.compile(
-    r"error\s*code|discriminant|code\s*\|.*variant|variant\s*\|.*code",
-    re.I,
-)
-
-# Section headers we care about.  The key is a human-readable label used in
-# output; the value is a regex that matches the Markdown heading line.
-_SECTION_PATTERNS: List[Tuple[str, re.Pattern]] = [
-    ("ContractError (stream)",  re.compile(r"^#{1,4}\s+Error Code Reference Table", re.I)),
-    ("FactoryError (factory)",  re.compile(r"^#{1,4}\s+.*FactoryError.*Reference.*Factory", re.I)),
+SECTION_PATTERNS = (
+    ("ContractError (stream)", re.compile(r"^#{1,4}\s+(?:Error Code Reference Table|`Error`)$", re.I)),
+    ("FactoryError (factory)", re.compile(r"^#{1,4}\s+.*FactoryError.*Reference.*Factory", re.I)),
     ("GovernanceError (governance)", re.compile(r"^#{1,4}\s+.*GovernanceError.*Reference", re.I)),
-]
+)
+ROW_DISC_FIRST = re.compile(r"^\|\s*(\d+)\s*\|\s*`?([A-Za-z_][A-Za-z0-9_]*)`?")
+ROW_NAME_FIRST = re.compile(r"^\|\s*`([A-Za-z_][A-Za-z0-9_]*)`\s*\|\s*(\d+)\s*\|")
+TABLE_SEPARATOR = re.compile(r"^\|[-|: ]+\|")
 
-# A heading that starts a new top-level section (resets the current section).
-_ANY_H2 = re.compile(r"^##\s+")
+
+def parse_error_md_tables(content: str) -> dict[str, dict[int, list[str]]]:
+    """Parse error.md discriminant tables into {enum_name: {code: [variants]}}."""
+    tables: dict[str, dict[int, list[str]]] = {}
+    current_enum = None
+
+    for line in content.splitlines():
+        stripped = line.strip()
+
+        # Detect table headers or section names for enums
+        enum_match = re.match(r"^#+\s*(\w+Error)", stripped)
+        if enum_match:
+            current_enum = enum_match.group(1)
+            if current_enum not in tables:
+                tables[current_enum] = {}
+            continue
+
+        # Parse table rows: | code | variant_name | description |
+        row_match = re.match(r"\|\s*(\d+)\s*\|\s*(\w+)\s*\|", stripped)
+        if row_match and current_enum:
+            code = int(row_match.group(1))
+            variant = row_match.group(2)
+            tables[current_enum].setdefault(code, []).append(variant)
+
+    return tables
 
 
-def _parse_docs(path: Path) -> Section:
-    """
-    Read *path* and return a mapping of section label → list of Entry objects.
+def _parse_docs(path: Path) -> dict[str, list[Entry]]:
+    lines = Path(path).read_text(encoding="utf-8").splitlines()
+    sections: dict[str, list[Entry]] = {}
+    current = None
+    header = ""
+    in_table = False
 
-    Only rows that belong to a *discriminant* table (one whose header row
-    contains keywords like "Error Code", "Discriminant", "Code | Variant",
-    etc.) are collected.  Plain enum-value tables such as the StreamKind table
-    are silently skipped even when they appear inside a recognised section.
-
-    Raises FileNotFoundError / PermissionError if the file cannot be read.
-    Raises ValueError if no recognisable discriminant table is found.
-    """
-    text = path.read_text(encoding="utf-8")
-    lines = text.splitlines()
-
-    sections: Section = {}
-    current_label: str | None = None
-    # True while we are inside a table whose header identified it as a
-    # discriminant table (resets to False at the first non-table line after
-    # the separator row).
-    in_disc_table: bool = False
-    # Accumulates the header row text so we can test it against keywords once
-    # we see the separator row that confirms it is a table.
-    pending_header: str = ""
-
-    for lineno, raw in enumerate(lines, start=1):
+    for line_no, raw in enumerate(lines, start=1):
         line = raw.strip()
-
-        # ── Detect section boundaries ───────────────────────────────────
-        matched_section = False
-        for label, pat in _SECTION_PATTERNS:
-            if pat.search(line):
-                current_label = label
-                if current_label not in sections:
-                    sections[current_label] = []
-                in_disc_table = False
-                pending_header = ""
-                matched_section = True
+        matched = False
+        for label, pattern in SECTION_PATTERNS:
+            if pattern.search(line):
+                current = label
+                sections.setdefault(label, [])
+                header = ""
+                in_table = False
+                matched = True
                 break
-
-        if not matched_section:
-            # Reset on an unrecognised H2 boundary so we don't collect rows
-            # from a completely unrelated table.
-            if _ANY_H2.match(line) and current_label is not None:
-                known = any(pat.search(line) for _, pat in _SECTION_PATTERNS)
-                if not known:
-                    current_label = None
-                    in_disc_table = False
-                    pending_header = ""
-
-        if current_label is None:
+        if not matched and line.startswith("## "):
+            current = None
+            header = ""
+            in_table = False
+        if current is None:
+            continue
+        if not line.startswith("|"):
+            header = ""
+            in_table = False
+            continue
+        if TABLE_SEPARATOR.match(line):
+            in_table = bool(
+                re.search(
+                    r"error\s*code|discriminant|#\s*\|\s*name|code\s*\|.*variant|variant.*\|\s*code",
+                    header,
+                    re.I,
+                )
+            )
+            header = ""
+            continue
+        if not in_table:
+            header = line
             continue
 
-        # ── Track table header / separator / end ────────────────────────
-        if line.startswith("|"):
-            if _TABLE_SEP.match(line):
-                # Separator row confirms the preceding pipe-row was a header.
-                # Decide whether this is a discriminant table.
-                in_disc_table = bool(_DISC_HEADER_KEYWORDS.search(pending_header))
-                pending_header = ""
-                continue
-            else:
-                # Either a header candidate or a data row.
-                if not in_disc_table:
-                    # Save as a potential header; we'll confirm on the separator.
-                    pending_header = line
-        else:
-            # Non-pipe line ends the current table.
-            in_disc_table = False
-            pending_header = ""
+        match = ROW_DISC_FIRST.match(line)
+        if match:
+            sections[current].append(Entry(int(match.group(1)), match.group(2), line_no))
             continue
-
-        if not in_disc_table:
-            continue
-
-        # ── Try to parse a discriminant data row ────────────────────────
-        m = _ROW_DISC_FIRST.match(line)
-        if m:
-            code = int(m.group(1))
-            name = m.group(2)
-            sections[current_label].append(Entry(code=code, name=name, line_no=lineno))
-            continue
-
-        m = _ROW_NAME_FIRST.match(line)
-        if m:
-            name = m.group(1)
-            code = int(m.group(2))
-            sections[current_label].append(Entry(code=code, name=name, line_no=lineno))
+        match = ROW_NAME_FIRST.match(line)
+        if match:
+            sections[current].append(Entry(int(match.group(2)), match.group(1), line_no))
 
     if not sections:
-        raise ValueError(
-            f"No discriminant tables found in {path}. "
-            "Check that the section headings match the expected patterns."
-        )
-
+        raise ValueError(f"No discriminant tables found in {path}")
     return sections
 
 
-# ---------------------------------------------------------------------------
-# Analysis
-# ---------------------------------------------------------------------------
-
-def _find_intra_collisions(label: str, entries: List[Entry]) -> List[str]:
-    """
-    Return a list of human-readable messages for every case where two
-    DIFFERENT variant names share the same numeric code within one section.
-    """
-    by_code: Dict[int, List[Entry]] = defaultdict(list)
-    for e in entries:
-        by_code[e.code].append(e)
-
-    messages = []
-    for code, group in sorted(by_code.items()):
-        unique_names = {e.name for e in group}
-        if len(unique_names) > 1:
-            names_str = ", ".join(sorted(unique_names))
-            locations = ", ".join(f"line {e.line_no}" for e in group)
-            messages.append(
-                f"  [INTRA-COLLISION] {label}: code {code} → {{{names_str}}} ({locations})"
-            )
-    return messages
+def _find_intra_collisions(label: str, entries: list[Entry]) -> list[str]:
+    by_code: dict[int, list[Entry]] = defaultdict(list)
+    for entry in entries:
+        by_code[entry.code].append(entry)
+    return [
+        f"  [INTRA-COLLISION] {label}: code {code} -> {{{', '.join(sorted({e.name for e in group}))}}} "
+        f"({', '.join(f'line {e.line_no}' for e in group)})"
+        for code, group in sorted(by_code.items())
+        if len({entry.name for entry in group}) > 1
+    ]
 
 
-def _find_cross_collisions(sections: Section) -> List[str]:
-    """
-    Return a list of human-readable messages for every numeric code that
-    appears in more than one section.
-    """
-    code_to_sections: Dict[int, List[Tuple[str, str]]] = defaultdict(list)
+def _find_cross_collisions(sections: dict[str, list[Entry]]) -> list[str]:
+    by_code: dict[int, list[str]] = defaultdict(list)
     for label, entries in sections.items():
-        seen_in_this_section: Dict[int, str] = {}
-        for e in entries:
-            # Use the first name encountered for each code in a section.
-            if e.code not in seen_in_this_section:
-                seen_in_this_section[e.code] = e.name
-        for code, name in seen_in_this_section.items():
-            code_to_sections[code].append((label, name))
+        for code in {entry.code for entry in entries}:
+            by_code[code].append(label)
+    return [
+        f"  [CROSS-SECTION] code {code} appears in multiple sections: {', '.join(labels)}"
+        for code, labels in sorted(by_code.items())
+        if len(labels) > 1
+    ]
 
+
+def _find_ordering_issues(label: str, entries: list[Entry]) -> list[str]:
     messages = []
-    for code, section_entries in sorted(code_to_sections.items()):
-        if len(section_entries) > 1:
-            detail = "; ".join(f"{lbl}::{nm}" for lbl, nm in section_entries)
+    previous = None
+    for entry in entries:
+        if previous is not None and entry.code < previous:
             messages.append(
-                f"  [CROSS-SECTION]   code {code} appears in multiple sections: {detail}"
+                f"  [OUT-OF-ORDER] {label}: code {entry.code} at line {entry.line_no} follows {previous}"
             )
+        previous = entry.code
     return messages
 
 
-def _find_ordering_issues(label: str, entries: List[Entry]) -> List[str]:
-    """
-    Return messages for any out-of-order discriminant within a section.
-    """
-    messages = []
-    prev_code: int | None = None
-    for e in entries:
-        if prev_code is not None and e.code < prev_code:
-            messages.append(
-                f"  [OUT-OF-ORDER]    {label}: code {e.code} (`{e.name}`, line {e.line_no}) "
-                f"follows code {prev_code}"
-            )
-        prev_code = e.code
-    return messages
-
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
-
-def _build_arg_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(
-        description=__doc__,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    p.add_argument(
-        "--docs",
-        metavar="PATH",
-        default=None,
-        help="Path to docs/error.md (auto-detected if not given)",
-    )
-    return p
-
-
-def main(argv: list[str] | None = None) -> int:
-    args = _build_arg_parser().parse_args(argv)
-
-    # ── Locate docs/error.md ────────────────────────────────────────────
-    if args.docs:
-        docs_path = Path(args.docs)
-    else:
-        # Walk up from this script's location until we find docs/error.md.
-        here = Path(__file__).resolve().parent
-        candidate = here.parent / "docs" / "error.md"
-        if not candidate.exists():
-            # Try cwd as a fallback.
-            candidate = Path("docs") / "error.md"
-        docs_path = candidate
-
-    print(f"Auditing discriminant tables in: {docs_path}\n")
-
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description="Audit ABI error discriminants")
+    parser.add_argument("--docs", type=Path, default=REPO_ROOT / "docs" / "ABI.md")
+    args = parser.parse_args(argv)
     try:
-        sections = _parse_docs(docs_path)
+        sections = _parse_docs(args.docs)
     except FileNotFoundError:
-        print(f"ERROR: File not found: {docs_path}", file=sys.stderr)
+        print(f"ERROR: File not found: {args.docs}", file=sys.stderr)
         return 2
-    except ValueError as exc:
+    except (OSError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
 
-    # ── Report what was found ────────────────────────────────────────────
-    print("Sections detected:")
+    print("Discriminant sections:")
+    intra = []
+    ordering = []
     for label, entries in sections.items():
-        codes = sorted({e.code for e in entries})
-        print(f"  {label}: {len(entries)} entries, codes {codes[0]}–{codes[-1]}")
-    print()
-
-    intra_msgs: List[str] = []
-    order_msgs: List[str] = []
-
-    for label, entries in sections.items():
-        intra_msgs.extend(_find_intra_collisions(label, entries))
-        order_msgs.extend(_find_ordering_issues(label, entries))
-
-    cross_msgs = _find_cross_collisions(sections)
-
-    # ── Shared-decoder finding ───────────────────────────────────────────
-    print("=" * 70)
-    print("SHARED-DECODER FINDING")
-    print("=" * 70)
-    print(
-        "ContractError (stream), FactoryError (factory), and GovernanceError\n"
-        "(governance) are three *independent* Soroban #[contracterror] enums.\n"
-        "Each lives in a separate contract and is decoded from a distinct\n"
-        "on-chain invocation context (stream contract vs. factory contract vs.\n"
-        "governance contract).  A well-structured off-chain client (wallet,\n"
-        "indexer, SDK) MUST route decoding based on the *invoked contract\n"
-        "address* before interpreting the numeric code.  As long as that\n"
-        "routing is in place, cross-section code overlap is harmless.\n"
-        "\n"
-        "RISK: If any off-chain component ever merges all three error\n"
-        "namespaces into one shared lookup table (e.g. a single numeric-code\n"
-        "→ message map used for all three contracts), cross-section overlaps\n"
-        "become silent misclassifications.  The cross-section findings below\n"
-        "should be reviewed whenever a new shared-decoder is written.\n"
-    )
-    print()
-
-    # ── Print findings ───────────────────────────────────────────────────
-    if order_msgs:
-        print("OUT-OF-ORDER ENTRIES (documentation maintenance warning):")
-        for m in order_msgs:
-            print(m)
-        print()
-
-    if cross_msgs:
-        print("CROSS-SECTION OVERLAPS (warning — see shared-decoder note above):")
-        for m in cross_msgs:
-            print(m)
-        print()
+        print(f"  {label}: {len(entries)} entries")
+        intra.extend(_find_intra_collisions(label, entries))
+        ordering.extend(_find_ordering_issues(label, entries))
+    for message in ordering:
+        print(message)
+    for message in intra:
+        print(message)
+    if intra:
+        print("ACTION REQUIRED: intra-section discriminant collisions must be fixed.")
     else:
-        print("No cross-section numeric overlaps detected.\n")
+        print("No intra-section collisions found.")
 
-    if intra_msgs:
-        print("INTRA-SECTION COLLISIONS (ERROR — same code, different name, same enum):")
-        for m in intra_msgs:
-            print(m)
-        print()
-        print(
-            "ACTION REQUIRED: The collisions above indicate that the docs/error.md\n"
-            "table assigns the same discriminant to two different variants within\n"
-            "the SAME enum.  Fix the table (and/or the source enum) before merging."
-        )
-        return 1
-
-    print("No intra-section collisions found.  Discriminant tables are internally consistent.")
-    return 0
+    cross = _find_cross_collisions(sections)
+    print("SHARED-DECODER FINDING: equal numeric codes in separate enums can be ambiguous to shared decoders.")
+    for message in cross:
+        print(message)
+    if not cross:
+        print("No cross-section numeric overlaps detected.")
+    return 1 if intra else 0
 
 
 if __name__ == "__main__":

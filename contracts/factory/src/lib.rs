@@ -1,313 +1,215 @@
 #![no_std]
-#![allow(clippy::too_many_arguments)]
+//! # Fluxora factory — admin policy wrapper
+//!
+//! The factory is the *policy* half of Fluxora. The
+//! [`FluxoraStream`](https://github.com/Fluxora-Org/Fluxora-Contracts)
+//! contract is deliberately a primitive: it has no admin, no pause switch and
+//! no fees, because those are exactly the powers that make a streaming
+//! primitive unsafe to build on. Anything an operator needs to configure —
+//! who may receive, how large a deposit may be, how short a schedule may be,
+//! whether new streams are paused — lives here instead, one layer up.
+//!
+//! This contract owns no tokens and moves no funds. It stores a small set of
+//! policy knobs, all of them in **instance storage**, and exposes admin
+//! setters plus read-only views over them.
+//!
+//! ## Instance TTL policy
+//!
+//! Every state-changing entry point — [`FluxoraFactory::init`] and each admin
+//! setter — calls [`bump_instance`], which pins the contract's instance entry
+//! to the network maximum, `env.storage().max_ttl()`.
+//!
+//! This is the same policy the stream contract applies to its instance entry
+//! (`fluxora_stream::storage::extend_instance`): instance storage is tiny and
+//! holds the whole admin configuration, so it is kept at maximum rent on every
+//! mutation rather than being allowed to decay toward some watermark. An
+//! actively-administered factory therefore never lets its configuration
+//! archive, and an idle factory is brought back to a full TTL window by the
+//! first setter call after the gap — the setter reads and writes instance
+//! storage, so the bump repairs the entry as part of the same transaction.
+//!
+//! Read-only views ([`FluxoraFactory::get_factory_config`],
+//! [`FluxoraFactory::is_factory_paused`], [`FluxoraFactory::is_allowlisted`])
+//! deliberately do **not** bump TTL. They can run in simulation, and a view
+//! that paid rent would be an observable behaviour change for callers who only
+//! want to read state. This mirrors the stream contract's rule that views never
+//! extend TTL.
+//!
+//! ## Immutability posture
+//!
+//! There is no upgrade entry point. A change to the policy *set* itself (not
+//! its values) is a new deployment. Individual values are mutable by the
+//! admin, which is the point: a cap that could never be raised would make the
+//! factory useless the first time it was set too low.
 
-use fluxora_stream::{ContractError as StreamContractErr, FluxoraStreamClient, StreamKind};
+#[cfg(all(target_family = "wasm", not(target_os = "none")))]
+compile_error!(
+    "Fluxora production WASM must be built for wasm32v1-none; wasm32-unknown-unknown can emit unsupported features."
+);
+#[cfg(all(target_family = "wasm", debug_assertions))]
+compile_error!("Fluxora production WASM must be built without debug assertions; use --release.");
+#[cfg(all(target_family = "wasm", feature = "testutils"))]
+compile_error!("Fluxora production WASM must not enable the testutils feature.");
+
+// The test suite runs against the host with `std` available; the contract
+// itself is strictly `no_std`.
+#[cfg(test)]
+extern crate std;
+
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, symbol_short, vec, Address, Bytes, Env,
-    Vec,
+    contract, contracterror, contractevent, contractimpl, contracttype, Address, Env,
 };
 
-/// Maximum number of stream IDs returned per page in `get_factory_streams_paginated`.
+/// Largest accepted [`FluxoraFactory::set_min_duration`] value, in seconds.
 ///
-/// Mirrors `MAX_PAGE_SIZE` from the stream contract to keep pagination semantics
-/// consistent across both contracts.
-pub const MAX_PAGE_SIZE: u32 = 100;
-
-/// Instance TTL threshold (ledgers). Below this value the entry will be extended.
-/// Mirrors governance contract to keep TTL semantics consistent across contracts.
-pub const INSTANCE_LIFETIME_THRESHOLD: u32 = 17_280;
-
-/// Instance TTL bump target (ledgers). ~60 days at 5-second ledger close.
-/// Mirrors governance contract to keep TTL semantics consistent across contracts.
-pub const INSTANCE_BUMP_AMOUNT: u32 = 120_960;
-
-/// Persistent TTL threshold (ledgers). Below this value the entry will be extended.
-pub const PERSISTENT_LIFETIME_THRESHOLD: u32 = 17_280;
-
-/// Persistent TTL bump target (ledgers). ~60 days at 5-second ledger close.
-pub const PERSISTENT_BUMP_AMOUNT: u32 = 120_960;
-
-/// Maximum accepted value for the factory `min_duration` policy, in seconds.
-///
-/// The ceiling is intentionally generous (100 years, using 365-day years) so
-/// normal treasury vesting schedules remain valid while malformed policies
-/// cannot silently make factory-routed stream creation impractical forever.
+/// The ceiling is deliberately generous (100 years of 365-day years) so normal
+/// treasury vesting schedules stay valid, while a fat-fingered or malformed
+/// policy can never make factory-routed stream creation impractical forever.
 pub const MAX_MIN_DURATION_SECONDS: u64 = 100 * 365 * 24 * 60 * 60;
 
+/// Smallest accepted deposit cap.
+///
+/// A cap of zero would reject every stream, so it is treated as a
+/// misconfiguration rather than a valid policy.
+pub const MIN_DEPOSIT_CAP: i128 = 1;
+
+/// Every failure mode of the factory is a typed error.
+///
+/// Discriminants are part of the public ABI. Never renumber an existing
+/// variant; only append. They are intentionally distinct from the stream
+/// contract's `Error` discriminants in intent, though the numeric space is
+/// shared across the two ABI tables — a client always knows which contract it
+/// called, so the same number means different things in different contracts.
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[repr(u32)]
 pub enum FactoryError {
+    /// `init` was called on an already-initialized factory.
     AlreadyInitialized = 1,
+    /// An admin entry point (or a required config read) ran before `init`.
     NotInitialized = 2,
+    /// The caller is not the stored admin. Currently `require_auth` panics
+    /// before this variant is constructed, so it is reserved as the typed
+    /// encoding of the same condition for future entry points.
     Unauthorized = 3,
-    RecipientNotAllowlisted = 4,
-    DepositExceedsCap = 5,
-    DurationTooShort = 6,
-    /// The requested stream must end strictly after it starts.
-    InvalidTimeRange = 7,
-    /// The requested cliff must be within the inclusive start/end window.
-    InvalidCliff = 8,
-    /// Factory stream creation is currently paused by admin.
-    CreationPaused = 9,
-    /// The downstream FluxoraStream contract rejected creation because it is paused.
-    StreamContractPaused = 10,
-    /// The downstream FluxoraStream contract rejected creation for a reason other than paused.
-    /// This is a passthrough catch-all for unexpected downstream failures.
-    StreamContractError = 11,
-    /// Rate per second is below the configured minimum.
-    RateBelowMin = 12,
-    /// Rate per second exceeds the configured maximum.
-    RateAboveMax = 13,
-    /// The factory cap must be in the accepted range `1..=i128::MAX`.
-    InvalidCap = 14,
-    /// The minimum duration must be in the accepted range
-    /// `0..=MAX_MIN_DURATION_SECONDS` seconds.
-    InvalidMinDuration = 15,
-    /// The requested memo exceeds the allowed max length.
-    InvalidMemo = 16,
-    /// The supplied `stream_contract` address did not respond to the
-    /// `FluxoraStream::version()` smoke check (e.g. it is not a deployed
-    /// contract, or does not implement the `FluxoraStream` interface).
-    ///
-    /// Returned by `init` and `set_stream_contract` instead of letting an
-    /// invalid address be persisted and later host-trap inside `create_stream`.
-    InvalidStreamContract = 17,
+    /// `set_cap` (or `init`) received a cap below [`MIN_DEPOSIT_CAP`].
+    InvalidCap = 4,
+    /// `set_min_duration` (or `init`) received a duration above
+    /// [`MAX_MIN_DURATION_SECONDS`].
+    InvalidMinDuration = 5,
+    /// `set_rate_bounds` received a negative bound, or `min > max`.
+    InvalidRateBounds = 6,
+
+    /// The factory-level creation pause is on, so a factory-mediated creation
+    /// was refused. Returned by
+    /// [`FluxoraFactory::assert_creation_allowed`].
+    FactoryPaused = 7,
 }
 
+/// Storage keys.
+///
+/// Every key here lives in **instance** storage except
+/// [`DataKey::Allowlist`], which is per-address and therefore persistent. The
+/// instance entry is the contract's entire configuration and is bumped to the
+/// network maximum on every state change — see the crate docs.
 #[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DataKey {
+    /// Instance storage. The address authorised to call the setters.
     Admin,
+    /// Instance storage. Address of the downstream stream contract that
+    /// factory-routed creations are forwarded to.
     StreamContract,
+    /// Instance storage. Maximum per-stream deposit accepted by the factory.
     MaxDepositCap,
+    /// Instance storage. Minimum stream duration accepted by the factory, in
+    /// seconds.
     MinDuration,
+    /// Instance storage. Whether the aggregate batch-cap check is enforced.
     BatchCapEnforced,
-    Allowlist(Address),
-    /// Persistent ordered list of stream IDs created through this factory.
-    FactoryStreamIds,
-    /// Boolean flag: when `true`, `create_stream` rejects all new streams.
+    /// Instance storage. Factory-level pause flag. Missing means `false`.
     CreationPaused,
-    /// Optional lower bound on rate_per_second (inclusive). When absent, no lower bound.
+    /// Instance storage. Optional inclusive lower bound on rate per second.
     MinRatePerSecond,
-    /// Optional upper bound on rate_per_second (inclusive). When absent, no upper bound.
+    /// Instance storage. Optional inclusive upper bound on rate per second.
     MaxRatePerSecond,
+    /// Persistent storage. One entry per allowlisted recipient.
+    Allowlist(Address),
 }
 
-/// Load and authorize the current factory admin.
+/// Read-only snapshot of the complete factory configuration.
 ///
-/// This is the single authorization chokepoint for admin-only factory setters.
-/// It preserves the existing `NotInitialized` behavior before attempting auth.
-fn require_admin(env: &Env) -> Result<Address, FactoryError> {
-    let admin: Address = env
-        .storage()
-        .instance()
-        .get(&DataKey::Admin)
-        .ok_or(FactoryError::NotInitialized)?;
-    admin.require_auth();
-    Ok(admin)
-}
-
-/// Smoke-test a candidate stream contract for the `FluxoraStream` interface.
-///
-/// This helper is called from `init` and `set_stream_contract` before the
-/// candidate address is persisted as the factory's `StreamContract`. It
-/// invokes the read-only, storage-free `version()` entrypoint via
-/// `FluxoraStreamClient::try_version`, which uses `Env::try_invoke_contract`
-/// internally so a missing contract, an EOA address, or a contract that does
-/// not expose `version()` surfaces as a typed `FactoryError` instead of a
-/// host trap.
-///
-/// `version()` is intentionally cheap to check: it performs no storage reads
-/// and works even on a `FluxoraStream` contract that has not yet been
-/// initialized, so it is safe to call during the factory's own bootstrap.
-fn validate_stream_contract(env: &Env, stream_contract: &Address) -> Result<(), FactoryError> {
-    let client = FluxoraStreamClient::new(env, stream_contract);
-    match client.try_version() {
-        Ok(Ok(_)) => Ok(()),
-        _ => Err(FactoryError::InvalidStreamContract),
-    }
-}
-
-/// Bump the instance storage TTL to prevent factory config expiration.
-///
-/// The factory's instance entries (Admin, StreamContract, MaxDepositCap, MinDuration,
-/// BatchCapEnforced, rate bounds, CreationPaused) hold the factory's entire config.
-/// Letting them expire would brick all admin operations. This helper extends the TTL
-/// whenever they are read or written, ensuring a busy factory never lets critical
-/// config expire.
-///
-/// **Security note:** This operation requires no additional authorization—it only
-/// extends the TTL of already-protected instance storage without mutating any config.
-/// It mirrors the governance contract's TTL bump patterns.
-fn bump_instance(env: &Env) {
-    env.storage()
-        .instance()
-        .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
-}
-
-/// Load the factory-created stream ID list from persistent storage.
-fn load_stream_ids(env: &Env) -> Vec<u64> {
-    env.storage()
-        .persistent()
-        .get(&DataKey::FactoryStreamIds)
-        .unwrap_or_else(|| vec![env])
-}
-
-/// Validate rate bounds for a stream.
-///
-/// Unset bounds are permissive. Bounds are inclusive.
-fn validate_rate_bounds(
-    rate_per_second: i128,
-    min_rate: &Option<i128>,
-    max_rate: &Option<i128>,
-) -> Result<(), FactoryError> {
-    if let Some(min_r) = min_rate {
-        if rate_per_second < *min_r {
-            return Err(FactoryError::RateBelowMin);
-        }
-    }
-    if let Some(max_r) = max_rate {
-        if rate_per_second > *max_r {
-            return Err(FactoryError::RateAboveMax);
-        }
-    }
-    Ok(())
-}
-
-/// Append `stream_id` to the factory registry and bump its persistent TTL.
-///
-/// The TTL is bumped unconditionally on every write so that a busy factory never
-/// lets the index expire.
-fn append_stream_id(env: &Env, stream_id: u64) {
-    let mut ids = load_stream_ids(env);
-    ids.push_back(stream_id);
-    env.storage()
-        .persistent()
-        .set(&DataKey::FactoryStreamIds, &ids);
-    env.storage().persistent().extend_ttl(
-        &DataKey::FactoryStreamIds,
-        PERSISTENT_LIFETIME_THRESHOLD,
-        PERSISTENT_BUMP_AMOUNT,
-    );
-}
-
-/// Append multiple stream IDs to the factory registry in insertion order and
-/// bump the persistent TTL once for the entire batch.
-///
-/// Calling this instead of repeated `append_stream_id` cuts TTL extend calls
-/// from O(n) to O(1) for a batch, saving instruction budget.
-fn append_stream_ids_batch(env: &Env, stream_ids: &Vec<u64>) {
-    if stream_ids.is_empty() {
-        return;
-    }
-    let mut ids = load_stream_ids(env);
-    for id in stream_ids.iter() {
-        ids.push_back(id);
-    }
-    env.storage()
-        .persistent()
-        .set(&DataKey::FactoryStreamIds, &ids);
-    env.storage().persistent().extend_ttl(
-        &DataKey::FactoryStreamIds,
-        PERSISTENT_LIFETIME_THRESHOLD,
-        PERSISTENT_BUMP_AMOUNT,
-    );
-}
-
-/// Validate a factory deposit cap before storing it.
-///
-/// The cap must be strictly positive. A non-positive cap would make every
-/// positive stream deposit exceed the cap, effectively bricking factory-routed
-/// stream creation.
-fn validate_cap(max_deposit: i128) -> Result<(), FactoryError> {
-    if max_deposit <= 0 {
-        return Err(FactoryError::InvalidCap);
-    }
-
-    Ok(())
-}
-
-/// Validate a factory minimum-duration policy before storing it.
-///
-/// Accepted range: `0..=MAX_MIN_DURATION_SECONDS` seconds. A value of `0`
-/// disables any additional factory-level minimum duration while `create_stream`
-/// still enforces `start_time < end_time`.
-fn validate_min_duration(min_duration: u64) -> Result<(), FactoryError> {
-    if min_duration > MAX_MIN_DURATION_SECONDS {
-        return Err(FactoryError::InvalidMinDuration);
-    }
-
-    Ok(())
-}
-
-/// Read-only snapshot of the factory policy stored in instance storage.
+/// Mirrors every [`FactoryPolicy`] field plus [`DataKey::Admin`], so a single
+/// [`FluxoraFactory::get_factory_config`] call reconstructs the effective
+/// configuration without extra probes for the admin or the pause flag.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FactoryConfig {
+    /// Address authorised to call the admin setters.
     pub admin: Address,
+    /// Downstream stream contract this factory routes creations to.
     pub stream_contract: Address,
+    /// Maximum per-stream deposit accepted.
     pub max_deposit: i128,
+    /// Minimum stream duration accepted, in seconds.
     pub min_duration: u64,
+    /// Whether the aggregate batch-cap check is enforced.
     pub batch_cap_enforced: bool,
+    /// Whether factory-routed stream creation is currently paused.
+    pub creation_paused: bool,
+    /// Optional inclusive lower bound on rate per second.
+    pub min_rate_per_second: Option<i128>,
+    /// Optional inclusive upper bound on rate per second.
+    pub max_rate_per_second: Option<i128>,
 }
 
-/// Full snapshot of the factory policy required by both creation paths.
+/// The policy axes a creation path consults, loaded in one pass.
 ///
-/// Loaded once via [`load_policy`] so that the single (`create_stream`) and
-/// batch (`create_streams`) creation paths apply the **identical**, complete
-/// policy set. Adding a new factory-level constraint therefore requires
-/// editing only the helper, not two divergent guard sequences — directly
-/// preventing the divergence bugs the helper was extracted to fix.
+/// Loading through [`load_policy`] rather than reading individual keys keeps
+/// every caller on the same, complete policy set: adding a field here does not
+/// require touching each creation path, and no constraint can be silently
+/// skipped by a new one.
 ///
-/// # Rate bounds
-/// Both rate bounds are stored as `Option<i128>`. `None` means the
-/// corresponding side of the interval is unbounded (permissive). When both
-/// are `Some`, they are inclusive.
+/// Both rate bounds are `Option<i128>`. `None` means the corresponding side of
+/// the interval is unbounded (permissive); when both are `Some` they are
+/// inclusive.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FactoryPolicy {
-    /// Address of the downstream `FluxoraStream` contract that all
-    /// factory-routed creations are forwarded to.
+    /// Downstream stream contract this factory routes creations to.
     pub stream_contract: Address,
-    /// Maximum per-stream deposit accepted by the factory.
+    /// Maximum per-stream deposit accepted.
     pub max_deposit: i128,
-    /// Minimum stream duration accepted by the factory, in seconds.
+    /// Minimum stream duration accepted, in seconds.
     pub min_duration: u64,
-    /// Whether the aggregate batch-cap check is enforced for `create_streams`.
-    /// A single-stream creation is unaffected by this flag.
+    /// Whether the aggregate batch-cap check is enforced.
     pub batch_cap_enforced: bool,
-    /// Factory-level creation pause. When `true`, both `create_stream` and
-    /// `create_streams` reject new requests with [`FactoryError::CreationPaused`].
+    /// Whether factory-routed stream creation is currently paused.
     pub creation_paused: bool,
-    /// Optional inclusive lower bound on `rate_per_second`. `None` is permissive.
+    /// Optional inclusive lower bound on rate per second.
     pub min_rate_per_second: Option<i128>,
-    /// Optional inclusive upper bound on `rate_per_second`. `None` is permissive.
+    /// Optional inclusive upper bound on rate per second.
     pub max_rate_per_second: Option<i128>,
 }
 
 /// Read the complete factory policy from instance storage in a single pass.
 ///
-/// Both `create_stream` and `create_streams` MUST obtain their policy through
-/// this helper instead of reading individual [`DataKey`] entries directly, so
-/// that no factory-level constraint can ever be silently skipped by either
-/// path. Adding a new policy field is a one-step change here plus inclusion
-/// in [`FactoryPolicy`] — the caller paths automatically inherit it.
+/// Every creation path must obtain its policy through this helper so that no
+/// factory-level constraint can be silently skipped.
 ///
 /// # Errors
-/// Returns [`FactoryError::NotInitialized`] if any of the **required** fields
-/// are missing. Optional fields fall back to their permissive defaults:
 ///
-/// - `creation_paused`      → `false`
-/// - `min_rate_per_second`  → `None`
-/// - `max_rate_per_second`  → `None`
+/// Returns [`FactoryError::NotInitialized`] when any **required** field is
+/// absent. Required fields are `stream_contract`, `max_deposit`,
+/// `min_duration` and `batch_cap_enforced`, all of which
+/// [`FluxoraFactory::init`] writes unconditionally. Optional fields fall back
+/// to their permissive defaults: `creation_paused` → `false`, and both rate
+/// bounds → `None`.
 ///
-/// # Required fields
-/// - `stream_contract`
-/// - `max_deposit`
-/// - `min_duration`
-/// - `batch_cap_enforced`
+/// # Context
 ///
-/// These are written unconditionally by [`FluxoraFactory::init`], so a
-/// well-formed initialized factory always satisfies them.
+/// Like every storage read, this must run with the factory as the current
+/// contract (i.e. inside a contract invocation or `env.as_contract`).
 pub fn load_policy(env: &Env) -> Result<FactoryPolicy, FactoryError> {
     let stream_contract: Address = env
         .storage()
@@ -350,115 +252,142 @@ pub fn load_policy(env: &Env) -> Result<FactoryPolicy, FactoryError> {
     })
 }
 
+/// Load and authorize the stored admin, or fail with the pre-init error.
+///
+/// This is the single authorization chokepoint for admin-only entry points, and
+/// it is deliberately ordered *before* `require_auth`: a setter called before
+/// `init` must report [`FactoryError::NotInitialized`] rather than an
+/// authentication failure, because there is no admin to authenticate against.
+fn require_admin(env: &Env) -> Result<Address, FactoryError> {
+    let admin: Address = env
+        .storage()
+        .instance()
+        .get(&DataKey::Admin)
+        .ok_or(FactoryError::NotInitialized)?;
+    admin.require_auth();
+    Ok(admin)
+}
+
+/// Pin the instance entry to the network maximum TTL.
+///
+/// The factory's entire configuration lives in instance storage, so letting it
+/// archive would brick every admin operation. This mirrors the stream
+/// contract's `extend_instance`: the entry is always extended to
+/// `env.storage().max_ttl()` on every state-changing call, so an
+/// actively-administered factory never expires and an idle one is repaired by
+/// the first setter that touches it.
+///
+/// No authorization is required: this only extends rent on storage the contract
+/// already owns, it cannot change any value.
+fn bump_instance(env: &Env) {
+    let max = env.storage().max_ttl();
+    env.storage().instance().extend_ttl(max, max);
+}
+
+/// Reject a deposit cap outside `MIN_DEPOSIT_CAP..=i128::MAX`.
+fn validate_cap(max_deposit: i128) -> Result<(), FactoryError> {
+    if max_deposit < MIN_DEPOSIT_CAP {
+        return Err(FactoryError::InvalidCap);
+    }
+    Ok(())
+}
+
+/// Reject a minimum duration above [`MAX_MIN_DURATION_SECONDS`].
+fn validate_min_duration(min_duration: u64) -> Result<(), FactoryError> {
+    if min_duration > MAX_MIN_DURATION_SECONDS {
+        return Err(FactoryError::InvalidMinDuration);
+    }
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
-// Event data structs
-// Topics use symbol_short! (≤ 9 chars). Naming mirrors contracts/stream/src/lib.rs.
+// Event payloads. Topics use symbol_short! (<= 9 chars).
 // ---------------------------------------------------------------------------
 
-/// Emitted when the factory is first initialised (`fct_init`).
-#[contracttype]
-#[derive(Clone, Debug)]
+/// Emitted once, when the factory is first initialised.
+#[contractevent]
 pub struct FactoryInited {
+    #[topic]
     pub admin: Address,
     pub stream_contract: Address,
     pub max_deposit: i128,
     pub min_duration: u64,
 }
 
-/// Emitted when the factory admin is rotated (`AdminUpd`).
-/// Mirrors the `AdminUpd` topic used in `FluxoraStream::set_admin`.
-#[contracttype]
-#[derive(Clone, Debug)]
+/// Emitted when the admin key is rotated.
+#[contractevent]
 pub struct FactoryAdminUpdated {
+    #[topic]
     pub old_admin: Address,
+    #[topic]
     pub new_admin: Address,
 }
 
-/// Emitted when the stream-contract pointer is changed (`stm_upd`).
-#[contracttype]
-#[derive(Clone, Debug)]
+/// Emitted when the downstream stream contract address changes.
+#[contractevent]
 pub struct StreamContractUpdated {
+    #[topic]
     pub old_contract: Address,
+    #[topic]
     pub new_contract: Address,
 }
 
-/// Emitted when a recipient is added to or removed from the allowlist (`allow_upd`).
-/// Carries enough state for an indexer to reconstruct membership without re-reading storage.
-#[contracttype]
-#[derive(Clone, Debug)]
+/// Emitted when the aggregate batch-cap enforcement flag changes.
+#[contractevent]
+pub struct BatchCapEnforcementUpdated {
+    pub enabled: bool,
+}
+
+/// Emitted when an address is added to or removed from the allowlist.
+#[contractevent]
 pub struct AllowlistUpdated {
+    #[topic]
     pub recipient: Address,
     pub allowed: bool,
 }
 
-/// Emitted when the factory deposit cap is changed (`cap_upd`).
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct CapUpdated {
-    pub old_cap: i128,
-    pub new_cap: i128,
-}
-
-/// Emitted when the factory minimum-duration policy is changed (`dur_upd`).
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct MinDurationUpdated {
-    pub old_min_duration: u64,
-    pub new_min_duration: u64,
-}
-
-/// Emitted when rate-per-second bounds are updated (`rate_bnd`).
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct RateBoundsUpdated {
-    pub min_rate: Option<i128>,
-    pub max_rate: Option<i128>,
-}
-
-/// Emitted when a stream is successfully created through the factory (`fct_strm`).
-/// Provides enough context for indexers to attribute stream creation to a policy-gated path.
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct FactoryStreamCreated {
-    pub stream_id: u64,
-    pub sender: Address,
-    pub recipient: Address,
-    pub deposit_amount: i128,
-    pub rate_per_second: i128,
+/// Emitted when the factory-level creation pause is toggled.
+#[contractevent]
+pub struct FactoryPauseUpdated {
+    pub paused: bool,
 }
 
 #[contract]
 pub struct FluxoraFactory;
 
 #[contractimpl]
-#[allow(clippy::too_many_arguments)]
 impl FluxoraFactory {
-    /// Initialize the factory with admin, stream contract, and policies.
+    // ---------------------------------------------------------------------
+    // Lifecycle
+    // ---------------------------------------------------------------------
+
+    /// Initialise the factory. May be called exactly once.
     ///
-    /// # Authorization
-    /// The declared `admin` must authorize this call via `admin.require_auth()`.
-    /// This matches every other admin-only entrypoint (`set_admin`,
-    /// `set_stream_contract`, `set_allowlist`, `set_cap`, `set_min_duration`,
-    /// all of which go through `require_admin`) and prevents an unrelated
-    /// caller from front-running bootstrap by seeding the factory with an
-    /// admin address they do not control.
+    /// The supplied `admin` must authorize the call. This is what stops an
+    /// unrelated caller from front-running bootstrap and seeding the factory
+    /// with an admin address they do not control.
     ///
-    /// # Validation
-    /// `stream_contract` must pass the `FluxoraStream` smoke check (see
-    /// [`validate_stream_contract`]) before it is persisted. This converts a
-    /// misconfigured stream address from a deferred host trap inside
-    /// `create_stream` into an immediate `FactoryError::InvalidStreamContract`
-    /// at setup time.
+    /// `stream_contract` is stored verbatim and is **not** validated on chain:
+    /// the factory holds no token and makes no cross-contract call, so there is
+    /// nothing for a smoke check to protect. Pointing the factory at the wrong
+    /// stream contract is a configuration error that is visible to off-chain
+    /// tooling, not a funds risk inside this contract.
     ///
     /// Accepted policy ranges:
-    /// - `max_deposit`: `1..=i128::MAX` (`FactoryError::InvalidCap` otherwise).
-    /// - `min_duration`: `0..=MAX_MIN_DURATION_SECONDS` seconds
-    ///   (`FactoryError::InvalidMinDuration` otherwise).
+    ///
+    /// * `max_deposit`: `MIN_DEPOSIT_CAP..=i128::MAX`
+    ///   ([`FactoryError::InvalidCap`] otherwise).
+    /// * `min_duration`: `0..=MAX_MIN_DURATION_SECONDS` seconds
+    ///   ([`FactoryError::InvalidMinDuration`] otherwise).
+    ///
+    /// Batch-cap enforcement defaults to `true`; creation pause defaults to
+    /// `false`; rate bounds default to `None`.
     ///
     /// # Errors
-    /// - `FactoryError::AlreadyInitialized` if `init` has already succeeded.
-    /// - `FactoryError::InvalidStreamContract` if `stream_contract` does not
-    ///   respond to `FluxoraStream::version()`.
+    ///
+    /// * [`FactoryError::AlreadyInitialized`] if `init` already succeeded.
+    /// * [`FactoryError::InvalidCap`] / [`FactoryError::InvalidMinDuration`]
+    ///   for out-of-range policy values.
     pub fn init(
         env: Env,
         admin: Address,
@@ -471,7 +400,6 @@ impl FluxoraFactory {
         }
 
         admin.require_auth();
-        validate_stream_contract(&env, &stream_contract)?;
         validate_cap(max_deposit)?;
         validate_min_duration(min_duration)?;
 
@@ -488,54 +416,50 @@ impl FluxoraFactory {
         env.storage()
             .instance()
             .set(&DataKey::BatchCapEnforced, &true);
-        // CreationPaused defaults to false — no explicit write needed;
-        // `is_factory_paused` falls back to `false` on a missing key.
+        // CreationPaused is intentionally not written: a missing key reads as
+        // `false`, so "never paused" needs no storage slot.
 
-        // Bump instance TTL to ensure config persists across the factory's lifetime.
+        // Bring the freshly written instance entry to a full TTL window.
         bump_instance(&env);
 
-        env.events().publish(
-            (symbol_short!("fct_init"),),
-            FactoryInited {
-                admin,
-                stream_contract,
-                max_deposit,
-                min_duration,
-            },
-        );
-
+        FactoryInited {
+            admin,
+            stream_contract,
+            max_deposit,
+            min_duration,
+        }
+        .publish(&env);
         Ok(())
     }
 
-    /// Admin updates the factory admin.
+    // ---------------------------------------------------------------------
+    // Admin setters
+    // ---------------------------------------------------------------------
+
+    /// Rotate the admin to `new_admin`. Requires the current admin's auth.
+    ///
+    /// Setting the current admin as `new_admin` is a successful no-op that
+    /// still refreshes the instance TTL.
     pub fn set_admin(env: Env, new_admin: Address) -> Result<(), FactoryError> {
         let old_admin = require_admin(&env)?;
 
         env.storage().instance().set(&DataKey::Admin, &new_admin);
-
-        // Bump instance TTL after successful update.
         bump_instance(&env);
 
-        env.events().publish(
-            (symbol_short!("AdminUpd"),),
-            FactoryAdminUpdated {
-                old_admin,
-                new_admin,
-            },
-        );
+        FactoryAdminUpdated {
+            old_admin,
+            new_admin,
+        }
+        .publish(&env);
         Ok(())
     }
 
-    /// Admin updates the stream contract address.
+    /// Point the factory at a new downstream stream contract.
     ///
-    /// # Validation
-    /// `new_stream_contract` must pass the same `FluxoraStream` smoke check
-    /// applied in `init` (see [`validate_stream_contract`]), so a later swap
-    /// cannot silently install a non-`FluxoraStream` address. On failure the
-    /// previously configured `stream_contract` is left untouched.
+    /// Requires the admin's auth. The address is stored without an on-chain
+    /// reachability check — see [`FluxoraFactory::init`] for why.
     pub fn set_stream_contract(env: Env, new_stream_contract: Address) -> Result<(), FactoryError> {
         require_admin(&env)?;
-        validate_stream_contract(&env, &new_stream_contract)?;
 
         let old_contract: Address = env
             .storage()
@@ -546,123 +470,94 @@ impl FluxoraFactory {
         env.storage()
             .instance()
             .set(&DataKey::StreamContract, &new_stream_contract);
-
-        // Bump instance TTL after successful update.
         bump_instance(&env);
 
-        env.events().publish(
-            (symbol_short!("stm_upd"),),
-            StreamContractUpdated {
-                old_contract,
-                new_contract: new_stream_contract,
-            },
-        );
+        StreamContractUpdated {
+            old_contract,
+            new_contract: new_stream_contract,
+        }
+        .publish(&env);
         Ok(())
     }
 
-    /// Admin adds or removes a recipient from the allowlist.
+    /// Set the maximum per-stream deposit. Requires the admin's auth.
+    ///
+    /// The cap must be at least [`MIN_DEPOSIT_CAP`]; a lower value returns
+    /// [`FactoryError::InvalidCap`] and leaves the stored cap unchanged.
+    pub fn set_cap(env: Env, max_deposit: i128) -> Result<(), FactoryError> {
+        require_admin(&env)?;
+        validate_cap(max_deposit)?;
+
+        env.storage()
+            .instance()
+            .set(&DataKey::MaxDepositCap, &max_deposit);
+        bump_instance(&env);
+        Ok(())
+    }
+
+    /// Set the minimum stream duration, in seconds. Requires the admin's auth.
+    ///
+    /// `0` disables any factory-level minimum. Values above
+    /// [`MAX_MIN_DURATION_SECONDS`] return [`FactoryError::InvalidMinDuration`]
+    /// and leave the stored policy unchanged.
+    pub fn set_min_duration(env: Env, min_duration: u64) -> Result<(), FactoryError> {
+        require_admin(&env)?;
+        validate_min_duration(min_duration)?;
+
+        env.storage()
+            .instance()
+            .set(&DataKey::MinDuration, &min_duration);
+        bump_instance(&env);
+        Ok(())
+    }
+
+    /// Add (`allowed == true`) or remove (`allowed == false`) a recipient from
+    /// the allowlist. Requires the admin's auth.
+    ///
+    /// Removal is idempotent: removing an address that was never added is a
+    /// safe no-op (the key is simply absent).
     pub fn set_allowlist(env: Env, recipient: Address, allowed: bool) -> Result<(), FactoryError> {
         require_admin(&env)?;
 
         let key = DataKey::Allowlist(recipient.clone());
         if allowed {
             env.storage().persistent().set(&key, &true);
+            // Give the durable entry the same maximum window as instance
+            // storage, so an allowlisted recipient does not silently fall out
+            // of the list while idle.
+            let max = env.storage().max_ttl();
+            env.storage().persistent().extend_ttl(&key, max, max);
         } else {
             env.storage().persistent().remove(&key);
         }
 
-        env.events().publish(
-            (symbol_short!("allow_upd"),),
-            AllowlistUpdated { recipient, allowed },
-        );
-        Ok(())
-    }
-
-    /// Admin updates the max deposit cap.
-    ///
-    /// The cap must be strictly positive; a non-positive value returns
-    /// `FactoryError::InvalidCap` and leaves the stored cap unchanged.
-    pub fn set_cap(env: Env, max_deposit: i128) -> Result<(), FactoryError> {
-        require_admin(&env)?;
-        validate_cap(max_deposit)?;
-
-        let old_cap: i128 = env
-            .storage()
-            .instance()
-            .get(&DataKey::MaxDepositCap)
-            .unwrap_or(0);
-
-        env.storage()
-            .instance()
-            .set(&DataKey::MaxDepositCap, &max_deposit);
-
-        // Bump instance TTL after successful update.
+        // The instance entry still changed hands (admin auth was read), so keep
+        // it fresh on every allowlist write too.
         bump_instance(&env);
 
-        env.events().publish(
-            (symbol_short!("cap_upd"),),
-            CapUpdated {
-                old_cap,
-                new_cap: max_deposit,
-            },
-        );
+        AllowlistUpdated { recipient, allowed }.publish(&env);
         Ok(())
     }
 
-    /// Admin updates the minimum stream duration.
-    ///
-    /// Accepted range: `0..=MAX_MIN_DURATION_SECONDS` seconds. A value of `0`
-    /// disables any additional factory-level minimum duration; values above the
-    /// ceiling return `FactoryError::InvalidMinDuration` and leave the stored
-    /// policy unchanged.
-    pub fn set_min_duration(env: Env, min_duration: u64) -> Result<(), FactoryError> {
-        require_admin(&env)?;
-        validate_min_duration(min_duration)?;
-
-        let old_min_duration: u64 = env
-            .storage()
-            .instance()
-            .get(&DataKey::MinDuration)
-            .unwrap_or(0);
-
-        env.storage()
-            .instance()
-            .set(&DataKey::MinDuration, &min_duration);
-
-        // Bump instance TTL after successful update.
-        bump_instance(&env);
-
-        env.events().publish(
-            (symbol_short!("dur_upd"),),
-            MinDurationUpdated {
-                old_min_duration,
-                new_min_duration: min_duration,
-            },
-        );
-        Ok(())
-    }
-
-    /// Admin enables or disables the aggregate batch-cap check.
+    /// Enable or disable the aggregate batch-cap check. Requires admin auth.
     pub fn set_batch_cap_enforcement(env: Env, enabled: bool) -> Result<(), FactoryError> {
         require_admin(&env)?;
 
         env.storage()
             .instance()
             .set(&DataKey::BatchCapEnforced, &enabled);
-
-        // Bump instance TTL after successful update.
         bump_instance(&env);
 
+        BatchCapEnforcementUpdated { enabled }.publish(&env);
         Ok(())
     }
 
-    /// Admin sets optional rate-per-second bounds.
+    /// Set optional inclusive rate-per-second bounds. Requires admin auth.
     ///
-    /// Both bounds are inclusive. Unset (None) means the corresponding side of
-    /// the interval is unbounded (permissive). When both are set, the invariant
-    /// `0 <= min <= max` must hold.
-    ///
-    /// Treats `None` arguments as "leave unchanged".
+    /// `None` leaves the corresponding bound unchanged. A supplied bound must
+    /// be non-negative, and the resulting `min <= max` invariant must hold;
+    /// otherwise the call returns [`FactoryError::InvalidRateBounds`] without
+    /// writing either bound.
     pub fn set_rate_bounds(
         env: Env,
         min_rate: Option<i128>,
@@ -670,86 +565,92 @@ impl FluxoraFactory {
     ) -> Result<(), FactoryError> {
         require_admin(&env)?;
 
+        // Validate the incoming values before touching storage so a rejected
+        // call never leaves a half-applied interval.
         if let Some(min_v) = min_rate {
             if min_v < 0 {
-                // rates are non-negative by domain convention; reject negative explicitly
-                return Err(FactoryError::StreamContractError); // reuse or could add new, but keep minimal
+                return Err(FactoryError::InvalidRateBounds);
             }
+        }
+        if let Some(max_v) = max_rate {
+            if max_v < 0 {
+                return Err(FactoryError::InvalidRateBounds);
+            }
+        }
+
+        let new_min = min_rate.or_else(|| env.storage().instance().get(&DataKey::MinRatePerSecond));
+        let new_max = max_rate.or_else(|| env.storage().instance().get(&DataKey::MaxRatePerSecond));
+        if let (Some(mn), Some(mx)) = (new_min, new_max) {
+            if mn > mx {
+                return Err(FactoryError::InvalidRateBounds);
+            }
+        }
+
+        if let Some(min_v) = min_rate {
             env.storage()
                 .instance()
                 .set(&DataKey::MinRatePerSecond, &min_v);
         }
         if let Some(max_v) = max_rate {
-            if max_v < 0 {
-                return Err(FactoryError::StreamContractError);
-            }
             env.storage()
                 .instance()
                 .set(&DataKey::MaxRatePerSecond, &max_v);
         }
 
-        // Validate min <= max when both are present after the update
-        let current_min: Option<i128> = env.storage().instance().get(&DataKey::MinRatePerSecond);
-        let current_max: Option<i128> = env.storage().instance().get(&DataKey::MaxRatePerSecond);
-        if let (Some(mn), Some(mx)) = (current_min, current_max) {
-            if mn > mx {
-                return Err(FactoryError::StreamContractError);
-            }
-        }
-
-        // Bump instance TTL after successful update.
         bump_instance(&env);
-
-        env.events().publish(
-            (symbol_short!("rate_bnd"),),
-            RateBoundsUpdated { min_rate, max_rate },
-        );
         Ok(())
     }
 
-    /// Toggle the factory-level stream creation pause.
+    /// Toggle the factory-level creation pause. Requires admin auth.
     ///
-    /// When `paused` is `true`, all calls to `create_stream` immediately return
-    /// [`FactoryError::CreationPaused`] — before any policy read, allowing the
-    /// admin to halt new factory-originated streams without dismantling the
-    /// allowlist or other policy state.
-    ///
-    /// # Authorization
-    /// Requires the stored admin's signature. Callers that are not the admin
-    /// will have their transaction rejected by `require_auth`.
-    ///
-    /// # Events
-    /// Emits a `factory_paused` or `factory_resumed` topic depending on the
-    /// new value of `paused`.
-    ///
-    /// # Errors
-    /// - [`FactoryError::NotInitialized`] — factory has not been initialized.
+    /// When `paused` is `true`, factory-routed creation rejects new requests
+    /// before doing any other work, so an operator can halt new streams without
+    /// dismantling the rest of the policy.
     pub fn set_factory_paused(env: Env, paused: bool) -> Result<(), FactoryError> {
         require_admin(&env)?;
 
         env.storage()
             .instance()
             .set(&DataKey::CreationPaused, &paused);
-
-        // Bump instance TTL after successful update.
         bump_instance(&env);
 
-        // Emit a structured event so indexers and monitors can react.
-        if paused {
-            env.events()
-                .publish((symbol_short!("factory"), symbol_short!("paused")), paused);
-        } else {
-            env.events()
-                .publish((symbol_short!("factory"), symbol_short!("resumed")), paused);
-        }
-
+        FactoryPauseUpdated { paused }.publish(&env);
         Ok(())
     }
 
-    /// Return whether factory stream creation is currently paused.
+    /// Refuse a factory-mediated creation while the pause is on.
     ///
-    /// This is a permissionless view — anyone may call it to check the current
-    /// pause state before submitting a `create_stream` transaction.
+    /// This is the pause chokepoint: it loads the full policy through
+    /// [`load_policy`] and reports the pause as a **named** error,
+    /// [`FactoryError::FactoryPaused`], so an integrator can branch on the
+    /// reason instead of parsing an opaque trap. Reading the policy rather than
+    /// the single `CreationPaused` key is deliberate — it keeps the pause on the
+    /// same, complete policy set every other constraint comes from, and it
+    /// fails with [`FactoryError::NotInitialized`] if the factory was never
+    /// initialised.
+    ///
+    /// Callers are creation paths; the function moves no funds and writes
+    /// nothing.
+    ///
+    /// # Errors
+    ///
+    /// * [`FactoryError::NotInitialized`] — before `init`.
+    /// * [`FactoryError::FactoryPaused`] — the admin has paused creation.
+    pub fn assert_creation_allowed(env: Env) -> Result<(), FactoryError> {
+        let policy = load_policy(&env)?;
+        if policy.creation_paused {
+            return Err(FactoryError::FactoryPaused);
+        }
+        Ok(())
+    }
+
+    // ---------------------------------------------------------------------
+    // Views — read-only, no TTL bump
+    // ---------------------------------------------------------------------
+
+    /// Whether factory-routed stream creation is currently paused.
+    ///
+    /// Permissionless view. A missing flag reads as `false`.
     pub fn is_factory_paused(env: Env) -> bool {
         env.storage()
             .instance()
@@ -757,38 +658,9 @@ impl FluxoraFactory {
             .unwrap_or(false)
     }
 
-    /// Return the current factory policy configuration.
-    pub fn get_factory_config(env: Env) -> Result<FactoryConfig, FactoryError> {
-        Ok(FactoryConfig {
-            admin: env
-                .storage()
-                .instance()
-                .get(&DataKey::Admin)
-                .ok_or(FactoryError::NotInitialized)?,
-            stream_contract: env
-                .storage()
-                .instance()
-                .get(&DataKey::StreamContract)
-                .ok_or(FactoryError::NotInitialized)?,
-            max_deposit: env
-                .storage()
-                .instance()
-                .get(&DataKey::MaxDepositCap)
-                .ok_or(FactoryError::NotInitialized)?,
-            min_duration: env
-                .storage()
-                .instance()
-                .get(&DataKey::MinDuration)
-                .ok_or(FactoryError::NotInitialized)?,
-            batch_cap_enforced: env
-                .storage()
-                .instance()
-                .get(&DataKey::BatchCapEnforced)
-                .ok_or(FactoryError::NotInitialized)?,
-        })
-    }
-
-    /// Return whether `recipient` is currently allowlisted for factory-created streams.
+    /// Whether `recipient` is currently allowlisted.
+    ///
+    /// Permissionless view. A missing entry reads as `false`.
     pub fn is_allowlisted(env: Env, recipient: Address) -> bool {
         env.storage()
             .persistent()
@@ -796,286 +668,33 @@ impl FluxoraFactory {
             .unwrap_or(false)
     }
 
-    /// Return the total number of streams created through this factory.
-    pub fn get_factory_stream_count(env: Env) -> u32 {
-        load_stream_ids(&env).len()
-    }
-
-    /// Return a page of stream IDs created through this factory.
+    /// Return the complete effective factory configuration.
     ///
-    /// `start_index` is a zero-based offset into the full registry. `limit` is
-    /// capped at [`MAX_PAGE_SIZE`] (100) to prevent unbounded reads.
+    /// A single call reconstructs everything [`FactoryConfig`] advertises,
+    /// including the admin and the pause flag, so callers need not probe
+    /// individual views.
     ///
-    /// Returns an empty list when `start_index` is beyond the end of the registry.
-    pub fn get_factory_streams_paginated(env: Env, start_index: u32, limit: u32) -> Vec<u64> {
-        let ids = load_stream_ids(&env);
-        let total = ids.len();
-
-        if start_index >= total {
-            return vec![&env];
-        }
-
-        let capped_limit = limit.min(MAX_PAGE_SIZE);
-        let end = (start_index + capped_limit).min(total);
-        let mut page = vec![&env];
-        for i in start_index..end {
-            page.push_back(ids.get(i).unwrap());
-        }
-        page
-    }
-
-    /// Creates a new stream via the FluxoraStream contract after enforcing treasury policies.
+    /// # Errors
     ///
-    /// # Parameters
-    /// - `stream_kind`: [`StreamKind::Linear`] for a standard vesting stream or
-    ///   [`StreamKind::CliffOnly`] for a one-shot cliff unlock. Forwarded verbatim
-    ///   to the stream contract; all policy checks (cap, allowlist, duration) apply
-    ///   regardless of kind.
-    /// - `memo`: Optional opaque correlation bytes forwarded to the stream contract
-    ///   and stored there. Length is validated against `fluxora_stream::MAX_MEMO_BYTES`
-    ///   by the factory prior to making the cross-contract call.
-    ///
-    /// # Guard order (checked strictly in sequence)
-    /// 1. **CreationPaused** — rejects immediately, before any policy read.
-    /// 2. Allowlist check
-    /// 3. Deposit cap check
-    /// 4. Time-range invariants
-    /// 5. Minimum-duration check
-    /// 6. Rate-per-second bounds check
-    /// 7. Memo length check (`fluxora_stream::MAX_MEMO_BYTES`)
-    /// 8. Cross-contract stream creation
-    ///
-    /// On success the returned stream ID is appended to the factory's [`DataKey::FactoryStreamIds`]
-    /// registry. The registry is only written **after** the cross-contract call succeeds, so a
-    /// downstream failure leaves no orphan index entry.
-    #[allow(clippy::too_many_arguments)]
-    pub fn create_stream(
-        env: Env,
-        sender: Address,
-        recipient: Address,
-        deposit_amount: i128,
-        rate_per_second: i128,
-        start_time: u64,
-        cliff_time: u64,
-        end_time: u64,
-        withdraw_dust_threshold: i128,
-        stream_kind: StreamKind,
-        memo: Option<Bytes>,
-    ) -> Result<u64, FactoryError> {
-        // ── Guard 1: load the full policy in one pass ────────────────────────
-        // Single chokepoint guarantees the single-path policy set is identical
-        // to the batch-path policy set (driven by `load_policy`).
+    /// [`FactoryError::NotInitialized`] if the factory has not been
+    /// initialized.
+    pub fn get_factory_config(env: Env) -> Result<FactoryConfig, FactoryError> {
         let policy = load_policy(&env)?;
-
-        // ── Guard 2: pause check ─────────────────────────────────────────────
-        // Checked as the first semantic guard so that when paused, we never
-        // evaluate allowlist/cap/duration/rate and never return per-stream
-        // policy errors — the factory only ever reports `CreationPaused`.
-        if policy.creation_paused {
-            return Err(FactoryError::CreationPaused);
-        }
-
-        // ── Guard 3: allowlist ───────────────────────────────────────────────
-        let is_allowed: bool = env
+        let admin: Address = env
             .storage()
-            .persistent()
-            .get(&DataKey::Allowlist(recipient.clone()))
-            .unwrap_or(false);
-        if !is_allowed {
-            return Err(FactoryError::RecipientNotAllowlisted);
-        }
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(FactoryError::NotInitialized)?;
 
-        // ── Guard 4: deposit cap ─────────────────────────────────────────────
-        if deposit_amount > policy.max_deposit {
-            return Err(FactoryError::DepositExceedsCap);
-        }
-
-        // ── Guard 5: time invariants ─────────────────────────────────────────
-        // Mirror FluxoraStream time invariants before the cross-contract call so
-        // invalid schedules return typed factory errors instead of downstream panics.
-        if start_time >= end_time {
-            return Err(FactoryError::InvalidTimeRange);
-        }
-        if cliff_time < start_time || cliff_time > end_time {
-            return Err(FactoryError::InvalidCliff);
-        }
-
-        // ── Guard 6: minimum duration ────────────────────────────────────────
-        let duration = end_time - start_time;
-        if duration < policy.min_duration {
-            return Err(FactoryError::DurationTooShort);
-        }
-
-        // ── Guard 7: rate bounds ─────────────────────────────────────────────
-        // Unset bounds are permissive. Bounds are inclusive.
-        validate_rate_bounds(
-            rate_per_second,
-            &policy.min_rate_per_second,
-            &policy.max_rate_per_second,
-        )?;
-
-        // ── Guard 8: memo length ─────────────────────────────────────────────
-        if let Some(ref m) = memo {
-            if m.len() as usize > fluxora_stream::MAX_MEMO_BYTES {
-                return Err(FactoryError::InvalidMemo);
-            }
-        }
-
-        // Must authenticate the sender because the factory calls FluxoraStream with this sender.
-        // The sender needs to authorize both this wrapper invocation and the cross-contract invocation.
-        sender.require_auth();
-
-        // ── Interaction ──────────────────────────────────────────────────────
-        let stream_contract = policy.stream_contract;
-        let stream_client = FluxoraStreamClient::new(&env, &stream_contract);
-
-        match stream_client.try_create_stream(
-            &sender,
-            &recipient,
-            &deposit_amount,
-            &rate_per_second,
-            &start_time,
-            &cliff_time,
-            &end_time,
-            &withdraw_dust_threshold,
-            &memo,
-            &stream_kind,
-        ) {
-            Ok(Ok(stream_id)) => {
-                // --- Effect (post-interaction): record only after a successful creation ---
-                // The registry is written only after the cross-contract call succeeds,
-                // so a downstream failure leaves no orphan index entry.
-                append_stream_id(&env, stream_id);
-                env.events().publish(
-                    (symbol_short!("fct_strm"),),
-                    FactoryStreamCreated {
-                        stream_id,
-                        sender,
-                        recipient,
-                        deposit_amount,
-                        rate_per_second,
-                    },
-                );
-                Ok(stream_id)
-            }
-            // Recognized downstream contract error reported in the success frame.
-            Ok(Err(_)) => Err(FactoryError::StreamContractError),
-            Err(Ok(StreamContractErr::ContractPaused)) => Err(FactoryError::StreamContractPaused),
-            Err(Ok(_)) => Err(FactoryError::StreamContractError),
-            Err(Err(_)) => Err(FactoryError::StreamContractError),
-        }
-    }
-
-    /// Create multiple streams in one atomic factory-wrapped transaction.
-    ///
-    /// # Guard order (checked strictly in sequence)
-    /// 1. **Policy load** — every required config field is read in one pass via
-    ///    [`load_policy`]. Returns [`FactoryError::NotInitialized`] if the
-    ///    factory has not been initialized.
-    /// 2. **Sender authentication** (`sender.require_auth()`).
-    /// 3. **CreationPaused** — checked immediately after the policy load,
-    ///    before any loop work, so that no per-stream policy configuration is
-    ///    observable when the factory is in emergency-pause mode.
-    /// 4. Iterative validation of each stream: allowlist, cap, times, duration,
-    ///    rate, memo, and (when enabled) the cumulative batch-cap.
-    /// 5. Cross-contract batch stream creation.
-    ///
-    /// # Event Emission Ordering
-    /// Appends all created stream IDs to the persistent registry first, then emits a
-    /// `FactoryStreamCreated` event (topic `fct_strm`) for each created stream.
-    /// Following the Checks-Effects-Interactions (CEI) pattern, event emission happens
-    /// strictly after interaction (cross-contract call) and state effects (registry append).
-    pub fn create_streams(
-        env: Env,
-        sender: Address,
-        streams: Vec<fluxora_stream::CreateStreamParams>,
-    ) -> Result<Vec<u64>, FactoryError> {
-        // ── Guard 1: load the full policy in one pass ────────────────────────
-        // Same chokepoint as `create_stream` — guarantees identical policy set.
-        let policy = load_policy(&env)?;
-
-        // ── Guard 2: sender authentication (checked before expensive loop validation) ─
-        sender.require_auth();
-
-        // ── Guard 3: pause check ─────────────────────────────────────────────
-        if policy.creation_paused {
-            return Err(FactoryError::CreationPaused);
-        }
-
-        // Bump instance TTL on every stream creation attempt.
-        // This helps ensure config persists even during periods with many stream operations.
-        bump_instance(&env);
-
-        let max_deposit = policy.max_deposit;
-        let min_duration = policy.min_duration;
-        let enforce_batch_cap = policy.batch_cap_enforced;
-        let min_rate = policy.min_rate_per_second;
-        let max_rate = policy.max_rate_per_second;
-        let stream_contract = policy.stream_contract;
-
-        let mut total_deposit: i128 = 0;
-        for params in streams.iter() {
-            let is_allowed: bool = env
-                .storage()
-                .persistent()
-                .get(&DataKey::Allowlist(params.recipient.clone()))
-                .unwrap_or(false);
-            if !is_allowed {
-                return Err(FactoryError::RecipientNotAllowlisted);
-            }
-
-            if params.deposit_amount > max_deposit {
-                return Err(FactoryError::DepositExceedsCap);
-            }
-
-            if params.start_time >= params.end_time {
-                return Err(FactoryError::InvalidTimeRange);
-            }
-            if params.cliff_time < params.start_time || params.cliff_time > params.end_time {
-                return Err(FactoryError::InvalidCliff);
-            }
-
-            let duration = params.end_time - params.start_time;
-            if duration < min_duration {
-                return Err(FactoryError::DurationTooShort);
-            }
-
-            validate_rate_bounds(params.rate_per_second, &min_rate, &max_rate)?;
-
-            if let Some(ref m) = params.memo {
-                if m.len() as usize > fluxora_stream::MAX_MEMO_BYTES {
-                    return Err(FactoryError::InvalidMemo);
-                }
-            }
-
-            if enforce_batch_cap {
-                total_deposit = total_deposit
-                    .checked_add(params.deposit_amount)
-                    .ok_or(FactoryError::DepositExceedsCap)?;
-                if total_deposit > max_deposit {
-                    return Err(FactoryError::DepositExceedsCap);
-                }
-            }
-        }
-
-        if streams.is_empty() {
-            return Ok(Vec::new(&env));
-        }
-
-        let stream_client = FluxoraStreamClient::new(&env, &stream_contract);
-        let mut wrapped_streams = Vec::new(&env);
-        for params in streams.iter() {
-            wrapped_streams.push_back(params.clone());
-        }
-
-        // --- Interaction ---
-        let created_ids = stream_client.create_streams(&sender, &wrapped_streams);
-
-        // --- Effect (post-interaction): register all batch IDs in creation order ---
-        // Written only after the cross-contract call succeeds; a downstream failure
-        // leaves no orphan index entries. TTL is bumped once for the whole batch.
-        append_stream_ids_batch(&env, &created_ids);
-
-        Ok(created_ids)
+        Ok(FactoryConfig {
+            admin,
+            stream_contract: policy.stream_contract,
+            max_deposit: policy.max_deposit,
+            min_duration: policy.min_duration,
+            batch_cap_enforced: policy.batch_cap_enforced,
+            creation_paused: policy.creation_paused,
+            min_rate_per_second: policy.min_rate_per_second,
+            max_rate_per_second: policy.max_rate_per_second,
+        })
     }
 }
