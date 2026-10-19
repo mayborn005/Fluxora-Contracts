@@ -1,212 +1,75 @@
-# Contract Test Coverage
+# Contract Coverage
 
-## Overview
+Every crate in the workspace is measured and gated against its own committed
+coverage floor. The floor for a crate lives in that crate's directory as
+`coverage-floor.txt`, holds its measured line coverage as a percentage, and is
+enforced by `script/check_coverage_floors.py`.
 
-Fluxora enforces a **minimum 95% line coverage** gate on the `fluxora_stream` contract in CI.
-Every pull request and push to `main`/`develop` must meet this threshold or the pipeline fails.
+| Crate | Path | Committed floor |
+|-------|------|-----------------|
+| `fluxora-stream` | `contracts/stream` | 96.4% |
+| `fluxora_factory` | `contracts/factory` | 80% |
+| `fluxora-archival-probe` | `contracts/archival-probe` | 90% |
+| `fluxora-provenance` | `tools/provenance` | 70% |
 
-Current baseline: **96.4%** (644/668 lines — see `coverage/cobertura.xml`).
+The crate list is not written down in the scripts or the workflow. It is read
+from `cargo metadata`, which is the same source for measurement and for the
+gate, so the two cannot drift apart.
 
-> New stream contract coverage includes boundary tests for `update_rate_per_second`: rejecting equal and zero rates, accepting `i128::MAX` when deposit coverage holds, allowing paused-stream updates, rejecting cancelled streams, and exercising monotonic rate sequences with `proptest`.
+## What fails the build
 
----
+The `Code Coverage` job fails when any of these hold, for any crate in the
+workspace:
 
-## Running Coverage Locally
+- **A crate drops below its floor.** The error names the crate and both figures.
+- **A crate has no committed floor.** Adding a crate without a
+  `coverage-floor.txt` fails the job. A new crate cannot arrive untested
+  and unnoticed.
+- **A crate has no coverage report.** If the measurement step skips a crate,
+  the gate reports a missing report rather than passing on the crates that did
+  run.
+- **A floor or report is unreadable.** A malformed floor is an error, not a
+  zero, so a typo cannot be read as a passing or a failing baseline by accident.
 
-### Prerequisites
+CI writes a per-crate table, and a per-module breakdown for each crate, to the
+job summary, and exposes one `coverage_<crate>=<percentage>` step output per
+measured crate.
 
-| Tool | Version | Install |
-|------|---------|---------|
-| Rust | 1.94.1 (pinned) | `rustup show` — `rust-toolchain.toml` handles this automatically |
-| cargo-tarpaulin | 0.31 | `cargo install cargo-tarpaulin --version 0.31 --locked` |
+## Changing a floor
 
-> cargo-tarpaulin uses Linux `ptrace`-based instrumentation. **macOS and Windows are not
-> supported for accurate coverage.** Use a Linux machine, WSL2, or a Docker container
-> (see [Soroban/WASM caveats](#sorobanwasm-caveats) below).
+The floor must only be raised after measuring the new baseline. Lowering one is
+not a valid way to resolve a coverage failure: it converts a detected regression
+into an accepted baseline. Floor files are maintainer-reviewed in
+`.github/CODEOWNERS` for that reason.
 
-### Quick run
+The `fluxora-archival-probe` and `fluxora-provenance` floors were seeded below
+the first measured baseline, because the tooling that would measure them was
+not available in the environment the change was authored in. They should be
+raised to the measured value from the first CI run, which prints it per crate in
+the job summary.
+
+To re-baseline deliberately:
+
+1. Add or restore the tests you intend to keep.
+2. Run `script/measure-coverage.sh` to get the real figure.
+3. Commit the new number in that crate's `coverage-floor.txt`.
+
+## Reproducing the reports locally on Linux
 
 ```bash
-# From the workspace root
-cargo tarpaulin \
-  --features testutils \
-  --out Xml \
-  --out Html \
-  --output-dir coverage \
-  --ignore-tests \
-  --skip-clean \
-  -p fluxora_stream
+cargo install cargo-tarpaulin --version 0.31 --locked
+script/measure-coverage.sh coverage
+python3 script/check_coverage_floors.py --reports-dir coverage
 ```
 
-Reports are written to `coverage/`:
-- `coverage/cobertura.xml` — machine-readable (used by CI gate and Codecov)
-- `coverage/tarpaulin-report.html` — human-readable, open in a browser
+`measure-coverage.sh` walks the workspace and writes one report per crate to
+`coverage/<crate-name>/cobertura.xml`, with an HTML report alongside it. The
+gate then compares each crate against its own floor. The `coverage/` directory
+is generated output and is not committed.
 
-### Check the threshold locally
+Useful environment variables: `COVERAGE_TIMEOUT` (per-test timeout, default
+300s, raised above tarpaulin's 60s default because instrumented proptest suites
+exceed it) and `CARGO_TARPAULIN_VERSION`.
 
-```bash
-LINE_RATE=$(grep -oP '(?<=<coverage )[^>]*' coverage/cobertura.xml | grep -oP 'line-rate="\K[0-9.]+')
-PCT=$(awk "BEGIN { printf \"%d\", $LINE_RATE * 100 }")
-echo "Coverage: ${PCT}%"
-[ "$PCT" -ge 95 ] && echo "PASS" || echo "FAIL — add tests to cover missing lines"
-```
-
-### Run with higher proptest case count
-
-Property-based tests default to 256 cases. For deeper fuzz coverage before a release:
-
-```bash
-PROPTEST_CASES=10000 cargo tarpaulin \
-  --features testutils \
-  --out Xml \
-  --output-dir coverage \
-  --ignore-tests \
-  --skip-clean \
-  -p fluxora_stream
-```
-
----
-
-## Soroban/WASM Caveats
-
-### Why we do NOT measure WASM coverage
-
-Soroban contracts compile to `wasm32-unknown-unknown`. cargo-tarpaulin instruments
-native (`x86_64`) binaries via `ptrace`; it cannot instrument WASM binaries.
-
-This is intentional and correct:
-
-- The Soroban `testutils` feature compiles the contract as a **native `rlib`** and
-  links it directly into the test binary. The test harness (`Env`, mock ledger, mock
-  auth) runs entirely in-process on the host.
-- Coverage is therefore measured against the **same source code** that gets compiled
-  to WASM for deployment — only the compilation target differs.
-- The WASM build is validated separately in the `build` CI job (reproducible build +
-  SHA256 checksum verification).
-
-### `--ignore-tests` flag
-
-We pass `--ignore-tests` so that lines inside `#[cfg(test)]` modules (`test.rs`,
-`test_withdrawable_props.rs`, etc.) are excluded from the denominator. Coverage
-measures production logic only, not test helpers.
-
-### `--skip-clean` flag
-
-Skips a full `cargo clean` before instrumentation. This speeds up CI significantly
-(avoids recompiling the entire dependency tree). Safe to use because tarpaulin
-re-instruments object files when source changes.
-
-### `|| true` removed intentionally
-
-The original CI command used `|| true` to swallow tarpaulin failures. This has been
-removed. If tarpaulin itself fails (e.g. a test panics, a dependency is missing), CI
-now correctly reports the failure rather than silently producing an empty report.
-
-### Soroban `no_std` and `extern crate std`
-
-The contract is `#![no_std]` for WASM compatibility. Test modules re-enable `std`
-with `extern crate std;` at the top of each test file. tarpaulin handles this
-correctly because it instruments the native build where `std` is always available.
-
----
-
-## CI Coverage Gate
-
-The `coverage` job in `.github/workflows/ci.yml`:
-
-1. Runs after the `test` job passes.
-2. Installs `cargo-tarpaulin 0.31` (cached between runs to avoid slow installs).
-3. Generates `coverage/cobertura.xml`.
-4. Parses the `line-rate` attribute from the XML root element.
-5. Converts to an integer percentage and compares against **95**.
-6. Fails with `::error::` if below threshold, annotating the PR.
-7. Posts a summary table to the GitHub Actions job summary (visible in the UI).
-8. Uploads the HTML + XML report as a downloadable artifact (14-day retention).
-9. Uploads to Codecov for trend tracking (non-blocking).
-
-The gate is **blocking**: a PR cannot be merged if coverage drops below 95%.
-
-### Job dependency graph
-
-```
-lint ──┬── build
-       └── test ── coverage
-```
-
-`coverage` only runs when `test` passes, so a broken test suite does not produce
-a misleading coverage number.
-
----
-
-## Interpreting the Report
-
-### Uncovered lines (current baseline)
-
-| File | Line(s) | Reason |
-|------|---------|--------|
-| `accrual.rs` | 31 | `None` branch of `checked_sub` — requires `current_time < checkpointed_at`, which the contract prevents at call sites |
-| `lib.rs` | 1768 | Unreachable branch in stream-close guard |
-| `lib.rs` | 1867–1868 | Defensive panic in recipient-index cleanup |
-| `lib.rs` | 2003 | Overflow guard in `shorten_stream_end_time` |
-
-These lines are defensive guards. They are intentionally hard to reach because the
-contract validates inputs before reaching them. They are tracked here so reviewers
-know they are not forgotten.
-
-### Adding tests to improve coverage
-
-1. Identify uncovered lines in `coverage/tarpaulin-report.html` (red highlighting).
-2. Write a test in the appropriate module (`test.rs`, `test_issue_39.rs`, etc.) that
-   exercises the missing branch.
-3. Re-run coverage locally to confirm the line turns green.
-4. Open a PR — CI will verify the threshold is still met.
-
-#### Recent Coverage Improvements
-
-- **Batch deposit overflow (lib.rs:316-317)**: Added property-based tests in `integration_suite.rs` that generate batches with cumulative deposits exceeding `i128::MAX`. Tests verify that `ContractError::ArithmeticOverflow` is returned and no partial state is written on overflow. Includes both fuzzing via proptest and exact boundary condition tests.
-
-- **Template cap branches (lib.rs owner-cap and global-cap guards, #521)**: Added
-  `test_owner_template_cap_exceeded` and `test_global_template_cap_exceeded` in
-  `contracts/stream/tests/stream_templates.rs`.
-  - `test_owner_template_cap_exceeded` registers exactly 64 templates for one owner
-    and asserts `TemplateLimitExceeded` on the 65th.  It then deletes one template
-    and confirms re-registration succeeds (counter decrement verified).
-  - `test_global_template_cap_exceeded` fills the 10 000-template global cap using
-    156 owners × 64 templates + 16 remainder, asserts `TemplateLimitExceeded` on the
-    next call, deletes one template, and confirms the freed slot allows registration.
-
----
-
-## References
-
-- [cargo-tarpaulin documentation](https://github.com/xd009642/tarpaulin)
-- [Snapshot test coverage matrix](./snapshot-test-coverage-matrix.md)
-- [Property-based accrual tests](./pr-accrual-property-tests.md)
-- [Security guidelines](./security.md)
-- [Audit preparation](./audit.md)
-
-## Close Guard and Index Cleanup Paths (issue #522)
-
-`contracts/stream/tests/close_guard_paths.rs` covers two previously-unreachable paths:
-
-### Close guard (`close_completed_stream`)
-
-| Test | Scenario | Expected |
-|---|---|---|
-| `test_close_non_completed_stream_rejected` | Active stream | `InvalidState` |
-| `test_close_paused_stream_rejected` | Paused stream | `InvalidState` |
-| `test_close_completed_stream_ok` | Fully withdrawn | Success, stream removed |
-| `test_close_cancelled_zero_claimable_ok` | Cancelled, no accrual | Success |
-| `test_close_cancelled_with_claimable_rejected` | Cancelled, accrual > 0 | `InvalidState` |
-| `test_close_nonexistent_stream` | Bad stream_id | `StreamNotFound` |
-
-### Recipient-index cleanup path
-
-`remove_stream_from_recipient_index` silently skips missing entries (no panic).
-This is the correct behavior for a permissionless cleanup function — a missing
-index entry should not block storage reclamation.
-
-| Test | Scenario |
-|---|---|
-| `test_recipient_index_cleanup_graceful_on_missing_entry` | Index entry present → removed cleanly |
-| `test_close_removes_only_target_from_index` | Other streams in index are unaffected |
+`--features testutils` is applied only to crates that declare the feature, so a
+crate without it is still measured correctly.

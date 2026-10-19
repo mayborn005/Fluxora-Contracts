@@ -1,184 +1,526 @@
-//! Event emission helpers for the Fluxora stream contract.
+//! Event definitions and emission.
 //!
-//! Each function wraps a single `env.events().publish(...)` call, keeping
-//! the `symbol_short!` topic definitions co-located with the payload struct.
-//! This makes ABI review trivial: every event topic is in one file.
+//! Stream discovery is an off-chain concern — the contract keeps no per-user
+//! index (see the `lib.rs` module docs). That makes these events the *only* way
+//! an indexer learns that a stream exists or that its state moved, so they are
+//! load-bearing infrastructure rather than optional telemetry.
 //!
-//! Some helpers here are not yet wired up as the sole call site for their
-//! event (several entry points in `lib.rs` still publish inline pending a
-//! follow-up refactor), so this module is `#[allow(dead_code)]` like `storage.rs`.
+//! # Contract
+//!
+//! * Every state change emits exactly one event.
+//! * Events are declared with `#[contractevent]`, so their schemas land in the
+//!   contract's interface spec. Tooling and the TypeScript SDK generate typed
+//!   decoders from that spec instead of hand-rolling topic parsers.
+//! * The static topic is the struct name in snake_case. `stream_id` is always a
+//!   topic, as are the addresses an indexer routes on, so a consumer can filter
+//!   server-side by event kind, by stream, or by party.
+//! * Each payload carries enough state to reconstruct the stream without
+//!   replaying from genesis.
+//!
+//! Field order and topic placement are ABI. Adding a field at the end of a struct is a compatible
+//! change (additive versioning); reordering, removing, or re-topicking an existing field is an
+//! incompatible breaking change. Indexers should tolerate unknown trailing fields.
+//! Event ordering within a single operation is deterministic. Currently, a single state change
+//! emits exactly one event, guaranteeing the event order aligns with the operation order.
+//!
+//! # Issue #1868 — every lifecycle event names the stream and both parties
+//!
+//! Reconstruction from events alone (the contract keeps no per-party index, so
+//! that is the only way to answer "which streams are mine") makes two demands
+//! on the payloads that the event set did not fully meet:
+//!
+//! * **Both parties, on every lifecycle event.** `stream_created` names both
+//!   from the start, but `withdrawn` named only the recipient, `paused`,
+//!   `resumed` and `topped_up` named only the sender, and
+//!   `recipient_transferred` named the old and new recipient but not the
+//!   sender. An indexer that starts mid-history, or that routes by address
+//!   without joining back to `stream_created`, could not attribute those events
+//!   to both sides of the stream. The missing party is therefore published as a
+//!   **payload** field (`sender` on `withdrawn` and `recipient_transferred`,
+//!   `recipient` on `paused`, `resumed` and `topped_up`): appending to the
+//!   payload is the compatible change, whereas adding a topic is breaking.
+//! * **The pause bookkeeping, where it moves.** `Stream.paused_at` and
+//!   `Stream.paused_total` are moved by two entry points that do not emit a
+//!   `paused`/`resumed` event of their own: a `withdraw` that drains a paused
+//!   stream to zero folds the in-progress pause into `paused_total` and clears
+//!   `paused_at`, and `cancel` clears `paused_at` on a stream that was paused.
+//!   `withdrawn` and `cancelled` now republish both fields, so a replay never
+//!   keeps a freeze point the contract has already dropped and never misses an
+//!   interval it has already folded. Publishing `paused_at` even though a replay
+//!   could infer the interval end from the withdrawal's ledger timestamp keeps
+//!   the fold a pure function of the payloads, with no clock dependency.
+//!
+//! `ttl_extended` and the two delegate events are not stream-lifecycle events:
+//! `ttl_extended` moves rent only, and the delegate events describe grants that
+//! `get_stream` does not return. They carry `stream_id` for attribution and are
+//! deliberately not required to name a party.
+//! See `test::event_reconstruction` for the machine-checked form of all of this.
+//!
+//! # Topic namespace and collision prevention (issue #1585)
+//!
+//! `topic[0]` is a `Symbol` derived from the event struct's name in `snake_case`
+//! by the soroban SDK macro. It serves as the **namespace** that uniquely
+//! identifies each event type. No two structs in this module may produce the
+//! same `topic[0]` symbol — a collision would make two distinct event kinds
+//! indistinguishable to an indexer filtering by topic.
+//!
+//! **This invariant is enforced by `test::events::test_all_event_topic_names_are_unique`.**
+//! That test emits every event type, collects the observed `topic[0]` symbols,
+//! and asserts they match the exact known inventory with no duplicates.
+//!
+//! Versioning rule:
+//! * **Additive (compatible):** append a new field at the end of the struct.
+//! * **Breaking change:** rename, remove, reorder, or re-topic an existing field,
+//!   or rename the struct. For a breaking change, introduce a new struct with a
+//!   `V2` suffix and keep the old one for the migration window.
+//!
+//! Note that item-level doc comments on a `#[contractevent]` struct are copied
+//! into the contract spec and therefore into the deployed wasm. Statements of
+//! the ABI belong there; the reasoning behind them belongs here, where it costs
+//! the contract nothing.
+//!
+//! # `Cancelled.vested`: total vested, not the withdrawable remainder
+//!
+//! Issue #1584. `cancelled` publishes `refunded`, `vested` and `withdrawn`,
+//! which makes it a public accounting statement, and `vested` had two defensible
+//! readings: everything the recipient has earned over the life of the stream, or
+//! only the part of it they can still pull. The two differ exactly when the
+//! recipient withdrew before the cancel.
+//!
+//! The ruling is **total vested**, cumulative and inclusive of `withdrawn`,
+//! because that is the reading that keeps the event self-checking:
+//!
+//! * Conservation holds unconditionally: `refunded + vested` equals the
+//!   pre-cancel `deposited` for every stream. Under the withdrawable reading
+//!   that identity fails for any partially withdrawn stream, and a reconciler
+//!   could no longer tell a broken contract from an ordinary one.
+//! * No information is lost. The event carries `withdrawn`, so the remainder is
+//!   `vested - withdrawn`. The reverse does not hold — from the remainder
+//!   alone, total vested is unrecoverable.
+//! * It matches storage one-for-one: cancellation rewrites `deposited` to the
+//!   vested amount, so an indexer mirroring `deposited` assigns the field
+//!   directly. [`cancelled`] reads it straight off the settled stream for that
+//!   reason, which is what makes divergence between event and storage
+//!   unrepresentable rather than merely untested.
+//!
+//! The cancel itself moves nothing to the recipient: they still pull
+//! `vested - withdrawn` through the normal withdraw path, which is why that
+//! amount stays pooled in the contract. Every cancellation state is asserted
+//! against storage and token balances in `test::cancel_events`.
+use soroban_sdk::{contractevent, Address, Env, String};
 
-#![allow(dead_code)]
+use crate::types::{CliffMode, ReleaseCurve, Stream, StreamStatus};
 
-use crate::*;
-use soroban_sdk::{symbol_short, Env};
-
-/// Emit the `created` event when a new stream is persisted.
-pub(crate) fn emit_stream_created(env: &Env, stream_id: u64, payload: StreamCreated) {
-    env.events()
-        .publish((symbol_short!("created"), stream_id), payload);
+/// A new stream was created. Carries the complete initial state — this is the
+/// event an indexer builds its sender/recipient mapping from — including the
+/// [`ReleaseCurve`], so the schedule shape is visible without a follow-up
+/// `get_stream` call.
+#[contractevent]
+pub struct StreamCreated {
+    #[topic]
+    pub stream_id: u64,
+    #[topic]
+    pub sender: Address,
+    #[topic]
+    pub recipient: Address,
+    pub token: Address,
+    pub deposited: i128,
+    pub start_time: u64,
+    pub end_time: u64,
+    pub cliff_time: u64,
+    pub cancellable: bool,
+    pub pausable: bool,
+    pub transferable: bool,
+    /// Shape of the release schedule. [`ReleaseCurve::Linear`] for a stream
+    /// created through `create_stream`.
+    pub curve: ReleaseCurve,
+    /// Which clock the cliff gate is read against. Appended in ABI v2 — see
+    /// `test::abi`. An indexer that predates the field should treat a missing
+    /// `cliff_mode` as `CliffMode::Schedule`, which is what the entry point that
+    /// omitted it produced.
+    pub cliff_mode: CliffMode,
+    /// Optional reference string for stream identification.
+    pub reference: Option<String>,
 }
 
-/// Emit the `withdrew` event when a token withdrawal is processed.
-pub(crate) fn emit_withdrawal(env: &Env, stream_id: u64, payload: Withdrawal) {
-    env.events()
-        .publish((symbol_short!("withdrew"), stream_id), payload);
+/// The recipient drew down accrued funds. Emitted once per stream, including
+/// once per drawn-from stream inside a `batch_withdraw`.
+///
+/// Zero-amount withdrawals are no-ops and do not emit this event.
+///
+/// The trailing three fields exist for issue #1868: `sender` completes the
+/// party pair, and `paused_at`/`paused_total` are the post-call pause
+/// bookkeeping, which a withdrawal that drains a paused stream moves
+/// (`paused_at` cleared, the in-progress interval folded into `paused_total`).
+#[contractevent]
+pub struct Withdrawn {
+    #[topic]
+    pub stream_id: u64,
+    #[topic]
+    pub recipient: Address,
+    /// Amount moved in this call.
+    pub amount: i128,
+    /// Cumulative withdrawn after this call.
+    pub withdrawn: i128,
+    pub deposited: i128,
+    pub status: StreamStatus,
+    pub sender: Address,
+    pub paused_at: Option<u64>,
+    pub paused_total: u64,
 }
 
-/// Emit the `withdrew` event for a `withdraw_to` destination.
-pub(crate) fn emit_withdrawal_to(env: &Env, stream_id: u64, payload: WithdrawalTo) {
-    env.events()
-        .publish((symbol_short!("withdrew"), stream_id), payload);
+/// The sender cancelled, collapsing the schedule onto the cancellation instant.
+///
+/// Amounts are readings at that instant and reconcile with storage and the
+/// token ledger exactly:
+///
+/// ```text
+/// refunded + vested == deposited before the cancel   (conservation)
+/// vested - withdrawn == still claimable == tokens left pooled for this stream
+/// ```
+///
+/// `vested` is the cumulative total, not the withdrawable remainder — see the
+/// module docs for why.
+///
+/// The trailing two fields exist for issue #1868: `cancel` closes any
+/// in-progress pause and clears `paused_at` without emitting a `resumed` event,
+/// so the post-cancel pause bookkeeping is republished here.
+#[contractevent]
+pub struct Cancelled {
+    #[topic]
+    pub stream_id: u64,
+    #[topic]
+    pub sender: Address,
+    #[topic]
+    pub recipient: Address,
+    /// Returned to the sender by this call: pre-cancel `deposited` minus
+    /// `vested`. Zero when the stream had already fully vested.
+    pub refunded: i128,
+    /// Total vested at cancellation, including what was already withdrawn.
+    /// Equal to the post-cancel `deposited`.
+    pub vested: i128,
+    /// Cumulative withdrawn before the cancel. Never moved by the cancel.
+    pub withdrawn: i128,
+    /// Rewritten end of the collapsed schedule.
+    pub end_time: u64,
+    /// Always `None`: the cancel closes any in-progress pause.
+    pub paused_at: Option<u64>,
+    /// Cumulative paused seconds, unchanged by the cancel.
+    pub paused_total: u64,
 }
 
-/// Emit the `cancelled` event when a stream is cancelled.
-pub(crate) fn emit_stream_cancelled(env: &Env, stream_id: u64) {
-    env.events().publish(
-        (symbol_short!("cancelled"), stream_id),
-        StreamEvent::StreamCancelled(stream_id),
-    );
+/// Accrual frozen.
+#[contractevent]
+pub struct Paused {
+    #[topic]
+    pub stream_id: u64,
+    #[topic]
+    pub sender: Address,
+    pub paused_at: u64,
+    pub paused_total: u64,
+    /// The other party of the stream (issue #1868).
+    pub recipient: Address,
 }
 
-/// Emit the `completed` event when a stream reaches terminal Completed state.
-pub(crate) fn emit_stream_completed(env: &Env, stream_id: u64) {
-    env.events().publish(
-        (symbol_short!("complete"), stream_id),
-        StreamEvent::StreamCompleted(stream_id),
-    );
+/// Accrual resumed. `paused_total` is the post-resume cumulative figure, so an
+/// indexer can recompute the schedule without tracking individual intervals.
+#[contractevent]
+pub struct Resumed {
+    #[topic]
+    pub stream_id: u64,
+    #[topic]
+    pub sender: Address,
+    pub paused_duration: u64,
+    pub paused_total: u64,
+    /// The other party of the stream (issue #1868).
+    pub recipient: Address,
 }
 
-/// Emit the `closed` event when storage is reclaimed.
-pub(crate) fn emit_stream_closed(env: &Env, stream_id: u64) {
-    env.events().publish(
-        (symbol_short!("closed"), stream_id),
-        StreamEvent::StreamClosed(stream_id),
-    );
+/// Funds added. Carries the new `end_time` because a top-up extends the
+/// duration rather than raising the rate.
+///
+/// Zero-amount top-ups are no-ops and do not emit this event.
+#[contractevent]
+pub struct ToppedUp {
+    #[topic]
+    pub stream_id: u64,
+    #[topic]
+    pub sender: Address,
+    pub amount: i128,
+    pub deposited: i128,
+    pub end_time: u64,
+    /// The other party of the stream (issue #1868).
+    pub recipient: Address,
 }
 
-/// Emit the `paused` event.
-pub(crate) fn emit_stream_paused(env: &Env, stream_id: u64, payload: StreamPaused) {
-    env.events()
-        .publish((symbol_short!("paused"), stream_id), payload);
+/// The recipient reassigned the stream.
+///
+/// The topics name the old and new recipient; `sender` is carried in the
+/// payload so the event names both parties of the stream (issue #1868).
+#[contractevent]
+pub struct RecipientTransferred {
+    #[topic]
+    pub stream_id: u64,
+    #[topic]
+    pub old_recipient: Address,
+    #[topic]
+    pub new_recipient: Address,
+    pub sender: Address,
 }
 
-/// Emit the `resumed` event.
-pub(crate) fn emit_stream_resumed(env: &Env, stream_id: u64) {
-    env.events().publish(
-        (symbol_short!("resumed"), stream_id),
-        StreamEvent::Resumed(stream_id),
-    );
+/// A delegate grant was issued.
+#[contractevent]
+pub struct DelegateGranted {
+    #[topic]
+    pub stream_id: u64,
+    #[topic]
+    pub grantor: Address,
+    #[topic]
+    pub delegate: Address,
+    pub ops: u32,
+    pub expires_at: Option<u64>,
 }
 
-/// Emit the `rate_upd` event when a rate is updated.
-pub(crate) fn emit_rate_updated(env: &Env, stream_id: u64, payload: RateUpdated) {
-    env.events()
-        .publish((symbol_short!("rate_upd"), stream_id), payload);
+/// A delegate grant was revoked.
+#[contractevent]
+pub struct DelegateRevoked {
+    #[topic]
+    pub stream_id: u64,
+    #[topic]
+    pub grantor: Address,
+    #[topic]
+    pub delegate: Address,
 }
 
-/// Emit the `rate_dec` event for a safe rate decrease.
-pub(crate) fn emit_rate_decreased(env: &Env, stream_id: u64, payload: RateDecreased) {
-    env.events()
-        .publish((symbol_short!("rate_dec"), stream_id), payload);
+/// A stream entry's TTL was topped up. Lets a keeper confirm its sweep landed.
+#[contractevent]
+pub struct TtlExtended {
+    #[topic]
+    pub stream_id: u64,
+    pub extended_to_ledgers: u32,
 }
 
-/// Emit the `rate_cap` event when a rate cap is enforced.
-pub(crate) fn emit_rate_cap_enforced(env: &Env, stream_id: u64, payload: RateCapEnforced) {
-    env.events()
-        .publish((symbol_short!("rate_cap"), stream_id), payload);
+/// The one-shot halt operator was installed (issue #1818).
+///
+/// Emitted exactly once per deployment: the setter has no rotation path, so
+/// there is no "operator changed" event to define.
+#[contractevent]
+pub struct HaltOperatorSet {
+    #[topic]
+    pub operator: Address,
 }
 
-/// Emit the `end_shrt` event when end time is shortened.
-pub(crate) fn emit_stream_end_shortened(env: &Env, stream_id: u64, payload: StreamEndShortened) {
-    env.events()
-        .publish((symbol_short!("end_shrt"), stream_id), payload);
+/// The contract-level halt was engaged (issue #1818).
+///
+/// From this event until the matching [`ContractResumed`], every
+/// state-changing entry point returns `ContractHalted` (34). Read methods are
+/// unaffected, and nothing is settled, cancelled or paused by the halt itself:
+/// the event is the indexer's signal that the *contract* stopped accepting
+/// mutations, not that any particular stream changed state.
+#[contractevent]
+pub struct ContractHalted {
+    #[topic]
+    pub operator: Address,
+    /// Ledger timestamp at which the halt was engaged.
+    pub halted_at: u64,
 }
 
-/// Emit the `end_ext` event when end time is extended.
-pub(crate) fn emit_stream_end_extended(env: &Env, stream_id: u64, payload: StreamEndExtended) {
-    env.events()
-        .publish((symbol_short!("end_ext"), stream_id), payload);
+/// The contract-level halt was lifted (issue #1818).
+#[contractevent]
+pub struct ContractResumed {
+    #[topic]
+    pub operator: Address,
+    /// Ledger timestamp at which settlement was restored.
+    pub resumed_at: u64,
+    /// Wall-clock seconds the contract spent halted.
+    pub halted_for: u64,
 }
 
-/// Emit the `topped_up` event when a stream is topped up.
-pub(crate) fn emit_stream_topped_up(env: &Env, stream_id: u64, payload: StreamToppedUp) {
-    env.events()
-        .publish((symbol_short!("toppedup"), stream_id), payload);
+// ---------------------------------------------------------------------------
+// Emission helpers
+// ---------------------------------------------------------------------------
+
+pub fn stream_created(env: &Env, stream_id: u64, stream: &Stream) {
+    StreamCreated {
+        stream_id,
+        sender: stream.sender.clone(),
+        recipient: stream.recipient.clone(),
+        token: stream.token.clone(),
+        deposited: stream.deposited,
+        start_time: stream.start_time,
+        end_time: stream.end_time,
+        cliff_time: stream.cliff_time,
+        cancellable: stream.cancellable,
+        pausable: stream.pausable,
+        transferable: stream.transferable,
+        curve: stream.curve,
+        cliff_mode: stream.cliff_mode,
+        reference: stream.reference.clone(),
+    }
+    .publish(env);
 }
 
-/// Emit the `sndr_xfr` event when sender is transferred.
-pub(crate) fn emit_sender_transferred(env: &Env, stream_id: u64, payload: SenderTransferred) {
-    env.events()
-        .publish((symbol_short!("sndr_xfr"), stream_id), payload);
+pub fn withdrawn(env: &Env, stream_id: u64, stream: &Stream, amount: i128) {
+    if amount == 0 {
+        return;
+    }
+    assert!(amount > 0, "withdraw amount must be positive");
+    Withdrawn {
+        stream_id,
+        recipient: stream.recipient.clone(),
+        amount,
+        withdrawn: stream.withdrawn,
+        deposited: stream.deposited,
+        status: stream.status,
+        sender: stream.sender.clone(),
+        paused_at: stream.paused_at,
+        paused_total: stream.paused_total,
+    }
+    .publish(env);
 }
 
-/// Emit the `hlth_chg` event when stream health changes.
-pub(crate) fn emit_stream_health_changed(env: &Env, stream_id: u64, payload: StreamHealthChanged) {
-    env.events()
-        .publish((symbol_short!("hlth_chg"), stream_id), payload);
+/// Emit [`Cancelled`] for a stream that has already been collapsed and saved.
+///
+/// Issue #1584: `vested` is deliberately *not* a parameter. Cancellation
+/// rewrites `deposited` to the amount vested at that instant, so reading the
+/// figure back off the settled stream is what guarantees the event and storage
+/// can never disagree - the two cannot be wired up out of order or drift apart
+/// in a later edit. `refunded` is still passed in because it is a token
+/// movement, not stream state; `cancel` debug-asserts the conservation identity
+/// that ties the two together.
+///
+/// # Preconditions
+///
+/// `stream` must be the post-cancel state: `status == Cancelled`, `deposited`
+/// already reduced to the vested amount, and `end_time` already collapsed.
+pub fn cancelled(env: &Env, stream_id: u64, stream: &Stream, refunded: i128) {
+    Cancelled {
+        stream_id,
+        sender: stream.sender.clone(),
+        recipient: stream.recipient.clone(),
+        refunded,
+        // Total vested at the cancellation instant == post-cancel `deposited`.
+        vested: stream.deposited,
+        withdrawn: stream.withdrawn,
+        end_time: stream.end_time,
+        paused_at: stream.paused_at,
+        paused_total: stream.paused_total,
+    }
+    .publish(env);
 }
 
-/// Emit the `rcpt_upd` event when recipient is updated.
-pub(crate) fn emit_recipient_updated(env: &Env, stream_id: u64, payload: RecipientUpdated) {
-    env.events()
-        .publish((symbol_short!("rcpt_upd"), stream_id), payload);
+pub fn paused(env: &Env, stream_id: u64, stream: &Stream, paused_at: u64) {
+    Paused {
+        stream_id,
+        sender: stream.sender.clone(),
+        paused_at,
+        paused_total: stream.paused_total,
+        recipient: stream.recipient.clone(),
+    }
+    .publish(env);
 }
 
-/// Emit the `g_paused` event for global emergency pause change.
-pub(crate) fn emit_global_emergency_pause_changed(env: &Env, payload: GlobalEmergencyPauseChanged) {
-    env.events().publish((symbol_short!("g_paused"),), payload);
+pub fn resumed(env: &Env, stream_id: u64, stream: &Stream, paused_duration: u64) {
+    Resumed {
+        stream_id,
+        sender: stream.sender.clone(),
+        paused_duration,
+        paused_total: stream.paused_total,
+        recipient: stream.recipient.clone(),
+    }
+    .publish(env);
 }
 
-/// Emit the `g_resume` event when global pause is lifted.
-pub(crate) fn emit_global_resumed(env: &Env, payload: GlobalResumed) {
-    env.events().publish((symbol_short!("g_resume"),), payload);
+pub fn topped_up(env: &Env, stream_id: u64, stream: &Stream, amount: i128) {
+    if amount == 0 {
+        return;
+    }
+    assert!(amount > 0, "top-up amount must be positive");
+    ToppedUp {
+        stream_id,
+        sender: stream.sender.clone(),
+        amount,
+        deposited: stream.deposited,
+        end_time: stream.end_time,
+        recipient: stream.recipient.clone(),
+    }
+    .publish(env);
 }
 
-/// Emit the `ct_pause` event when creation pause changes.
-pub(crate) fn emit_contract_pause_changed(env: &Env, payload: ContractPauseChanged) {
-    env.events().publish((symbol_short!("ct_pause"),), payload);
+pub fn recipient_transferred(
+    env: &Env,
+    stream_id: u64,
+    sender: &Address,
+    old_recipient: &Address,
+    new_recipient: &Address,
+) {
+    RecipientTransferred {
+        stream_id,
+        old_recipient: old_recipient.clone(),
+        new_recipient: new_recipient.clone(),
+        sender: sender.clone(),
+    }
+    .publish(env);
 }
 
-/// Emit `pr_pause` event when protocol is paused.
-pub(crate) fn emit_protocol_paused(env: &Env, payload: ProtocolPaused) {
-    env.events().publish((symbol_short!("pr_pause"),), payload);
+pub fn ttl_extended(env: &Env, stream_id: u64, extended_to_ledgers: u32) {
+    TtlExtended {
+        stream_id,
+        extended_to_ledgers,
+    }
+    .publish(env);
 }
 
-/// Emit `pr_rsm` event when protocol is resumed.
-pub(crate) fn emit_protocol_resumed(env: &Env, payload: ProtocolResumed) {
-    env.events().publish((symbol_short!("pr_rsm"),), payload);
+pub fn delegate_granted(
+    env: &Env,
+    stream_id: u64,
+    grantor: &Address,
+    delegate: &Address,
+    ops: u32,
+    expires_at: Option<u64>,
+) {
+    DelegateGranted {
+        stream_id,
+        grantor: grantor.clone(),
+        delegate: delegate.clone(),
+        ops,
+        expires_at,
+    }
+    .publish(env);
 }
 
-/// Emit `ac_set` event when auto-claim destination is set.
-pub(crate) fn emit_auto_claim_set(env: &Env, stream_id: u64, payload: AutoClaimSet) {
-    env.events()
-        .publish((symbol_short!("ac_set"), stream_id), payload);
+pub fn delegate_revoked(env: &Env, stream_id: u64, grantor: &Address, delegate: &Address) {
+    DelegateRevoked {
+        stream_id,
+        grantor: grantor.clone(),
+        delegate: delegate.clone(),
+    }
+    .publish(env);
 }
 
-/// Emit `ac_rev` event when auto-claim destination is revoked.
-pub(crate) fn emit_auto_claim_revoked(env: &Env, stream_id: u64, payload: AutoClaimRevoked) {
-    env.events()
-        .publish((symbol_short!("ac_rev"), stream_id), payload);
+/// Emit [`HaltOperatorSet`] once, when the one-shot setter succeeds.
+pub fn halt_operator_set(env: &Env, operator: &Address) {
+    HaltOperatorSet {
+        operator: operator.clone(),
+    }
+    .publish(env);
 }
 
-/// Emit `ac_trig` event when auto-claim is triggered.
-pub(crate) fn emit_auto_claim_triggered(env: &Env, stream_id: u64, payload: AutoClaimTriggered) {
-    env.events()
-        .publish((symbol_short!("ac_trig"), stream_id), payload);
+/// Emit [`ContractHalted`] when the operator engages the halt.
+pub fn contract_halted(env: &Env, operator: &Address, halted_at: u64) {
+    ContractHalted {
+        operator: operator.clone(),
+        halted_at,
+    }
+    .publish(env);
 }
 
-/// Emit `excess_sw` event when admin sweeps excess tokens.
-pub(crate) fn emit_excess_swept(env: &Env, payload: ExcessSwept) {
-    env.events().publish((symbol_short!("excess_sw"),), payload);
-}
-
-/// Emit the `cloned` event when a stream is cloned.
-pub(crate) fn emit_stream_cloned(env: &Env, stream_id: u64, payload: StreamCloned) {
-    env.events()
-        .publish((symbol_short!("cloned"), stream_id), payload);
-}
-
-/// Emit the `kp_cncl` event for keeper-initiated cancellations.
-pub(crate) fn emit_keeper_cancelled(env: &Env, stream_id: u64, payload: KeeperCancelled) {
-    env.events()
-        .publish((symbol_short!("kp_cncl"), stream_id), payload);
+/// Emit [`ContractResumed`] when the operator lifts the halt.
+pub fn contract_resumed(env: &Env, operator: &Address, resumed_at: u64, halted_for: u64) {
+    ContractResumed {
+        operator: operator.clone(),
+        resumed_at,
+        halted_for,
+    }
+    .publish(env);
 }
