@@ -30,11 +30,13 @@ Security guarantees under test
   of which files among multiple changed files contain the diff.
 """
 
+import copy
 import json
 import subprocess
 import sys
 import os
 import runpy
+from pathlib import Path
 from unittest.mock import patch, mock_open, MagicMock, call
 
 import pytest
@@ -44,6 +46,42 @@ import pytest
 # ---------------------------------------------------------------------------
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'script'))
 import check_snapshot_diff  # noqa: E402
+
+FIXTURES_DIR = os.path.join(os.path.dirname(__file__), 'fixtures', 'event_snapshots')
+
+
+def _load_fixture(name):
+    with open(os.path.join(FIXTURES_DIR, name), 'r', encoding='utf-8') as f:
+        return json.load(f)
+
+
+def _run_git(args, cwd):
+    subprocess.run(
+        ['git'] + args,
+        cwd=cwd,
+        check=True,
+        capture_output=True,
+        env={
+            **os.environ,
+            'GIT_AUTHOR_NAME': 'Test',
+            'GIT_AUTHOR_EMAIL': 'test@example.com',
+            'GIT_COMMITTER_NAME': 'Test',
+            'GIT_COMMITTER_EMAIL': 'test@example.com',
+        },
+    )
+
+
+def _commit_snapshot(repo, rel_path, content):
+    """Write ``content`` (a dict) to ``rel_path`` inside ``repo`` and commit it."""
+    full_path = os.path.join(repo, rel_path)
+    os.makedirs(os.path.dirname(full_path), exist_ok=True)
+    with open(full_path, 'w', encoding='utf-8') as f:
+        json.dump(content, f, indent=2)
+    _run_git(['add', '-A'], cwd=repo)
+    _run_git(['commit', '-m', f'snapshot: {rel_path}'], cwd=repo)
+    return subprocess.check_output(
+        ['git', 'rev-parse', 'HEAD'], cwd=repo
+    ).decode('utf-8').strip()
 
 
 # ===========================================================================
@@ -193,7 +231,9 @@ class TestGetChangedFiles:
             "contracts/stream/test_snapshots/b.json",
         ]
         mock_co.assert_called_once_with(
-            ['git', 'diff', '--name-only', 'HEAD~1', 'HEAD']
+            ['git', 'diff', '--name-only', 'HEAD~1', 'HEAD'],
+            cwd=check_snapshot_diff.REPO_ROOT,
+            text=False,
         )
 
     @patch('subprocess.check_output')
@@ -202,7 +242,9 @@ class TestGetChangedFiles:
         files = check_snapshot_diff.get_changed_files("origin/main", None)
         assert files == ["contracts/stream/test_snapshots/c.json"]
         mock_co.assert_called_once_with(
-            ['git', 'diff', '--name-only', 'origin/main']
+            ['git', 'diff', '--name-only', 'origin/main'],
+            cwd=check_snapshot_diff.REPO_ROOT,
+            text=False,
         )
 
     @patch('subprocess.check_output')
@@ -251,16 +293,18 @@ class TestGetFileContent:
         mock_co.side_effect = subprocess.CalledProcessError(128, 'git')
         assert check_snapshot_diff.get_file_content("HEAD", "missing.json") is None
 
-    @patch('os.path.exists', return_value=True)
-    @patch('builtins.open', new_callable=mock_open, read_data='{"local": true}')
-    def test_reads_from_local_when_no_commit(self, mock_file, mock_exists):
+    @patch('check_snapshot_diff.Path.exists', return_value=True)
+    @patch('check_snapshot_diff.Path.read_text', return_value='{"local": true}')
+    def test_reads_from_local_when_no_commit(self, mock_read, mock_exists):
         content = check_snapshot_diff.get_file_content(None, "local.json")
         assert content == '{"local": true}'
-        mock_exists.assert_called_once_with("local.json")
+        mock_exists.assert_called_once_with()
+        mock_read.assert_called_once_with(encoding="utf-8")
 
-    @patch('os.path.exists', return_value=False)
+    @patch('check_snapshot_diff.Path.exists', return_value=False)
     def test_local_file_missing_returns_none(self, mock_exists):
         assert check_snapshot_diff.get_file_content(None, "absent.json") is None
+        mock_exists.assert_called_once_with()
 
     @patch('subprocess.check_output')
     def test_git_returns_unicode_content(self, mock_co):
@@ -281,9 +325,8 @@ class TestMain:
     @patch('check_snapshot_diff.get_changed_files', return_value=[])
     def test_exits_0_when_no_snapshot_files(self, _mock, capsys):
         with patch('sys.argv', ['check_snapshot_diff.py']):
-            with pytest.raises(SystemExit) as exc:
-                check_snapshot_diff.main()
-        assert exc.value.code == 0
+            exit_code = check_snapshot_diff.main()
+        assert exit_code == 0
         assert "No snapshot JSON files changed." in capsys.readouterr().out
 
     # --- security-relevant diff → exit 1 ---
@@ -296,9 +339,8 @@ class TestMain:
             '{"events": [{"topic": "new_topic"}]}',
         ]
         with patch('sys.argv', ['check_snapshot_diff.py']):
-            with pytest.raises(SystemExit) as exc:
-                check_snapshot_diff.main()
-        assert exc.value.code == 1
+            exit_code = check_snapshot_diff.main()
+        assert exit_code == 1
         out = capsys.readouterr().out
         assert "Security-relevant fields changed" in out
         assert "Mandatory extra review required" in out
@@ -313,9 +355,8 @@ class TestMain:
             '{"fee": 200}',
         ]
         with patch('sys.argv', ['check_snapshot_diff.py']):
-            with pytest.raises(SystemExit) as exc:
-                check_snapshot_diff.main()
-        assert exc.value.code == 0
+            exit_code = check_snapshot_diff.main()
+        assert exit_code == 0
         out = capsys.readouterr().out
         assert "[INFO] Changes in" in out
         assert "none are security-relevant" in out
@@ -328,9 +369,8 @@ class TestMain:
         same = '{"fee": 100, "sequence": 1}'
         mock_content.side_effect = [same, same]
         with patch('sys.argv', ['check_snapshot_diff.py']):
-            with pytest.raises(SystemExit) as exc:
-                check_snapshot_diff.main()
-        assert exc.value.code == 0
+            exit_code = check_snapshot_diff.main()
+        assert exit_code == 0
         assert "No security-relevant snapshot changes detected." in capsys.readouterr().out
 
     # --- malformed old JSON (line 95) ---
@@ -340,10 +380,9 @@ class TestMain:
     def test_malformed_old_json_treated_as_empty(self, mock_content, _mock_files):
         mock_content.side_effect = ['{bad json!!', '{"fee": 20}']
         with patch('sys.argv', ['check_snapshot_diff.py']):
-            with pytest.raises(SystemExit) as exc:
-                check_snapshot_diff.main()
+            exit_code = check_snapshot_diff.main()
         # fee is not security-relevant; no hard failure expected
-        assert exc.value.code == 0
+        assert exit_code == 0
 
     # --- malformed new JSON (lines 99-100) ---
     @patch('check_snapshot_diff.get_changed_files',
@@ -357,10 +396,9 @@ class TestMain:
         """
         mock_content.side_effect = ['{"fee": 20}', '{NOT valid JSON!!!']
         with patch('sys.argv', ['check_snapshot_diff.py']):
-            with pytest.raises(SystemExit) as exc:
-                check_snapshot_diff.main()
+            exit_code = check_snapshot_diff.main()
         # old={fee:20} vs new={} → diff on "fee" key, not security-relevant
-        assert exc.value.code == 0
+        assert exit_code == 0
 
     # --- malformed new JSON that creates a security diff ---
     @patch('check_snapshot_diff.get_changed_files',
@@ -377,9 +415,8 @@ class TestMain:
             '{invalid',
         ]
         with patch('sys.argv', ['check_snapshot_diff.py']):
-            with pytest.raises(SystemExit) as exc:
-                check_snapshot_diff.main()
-        assert exc.value.code == 1
+            exit_code = check_snapshot_diff.main()
+        assert exit_code == 1
         assert "Security-relevant fields changed" in capsys.readouterr().out
 
     # --- None content (missing file on both sides) ---
@@ -389,9 +426,8 @@ class TestMain:
     def test_none_old_and_new_content(self, mock_content, _mock_files):
         mock_content.side_effect = [None, None]
         with patch('sys.argv', ['check_snapshot_diff.py']):
-            with pytest.raises(SystemExit) as exc:
-                check_snapshot_diff.main()
-        assert exc.value.code == 0
+            exit_code = check_snapshot_diff.main()
+        assert exit_code == 0
 
     # --- new file added (None old, valid new with security fields) ---
     @patch('check_snapshot_diff.get_changed_files',
@@ -403,9 +439,8 @@ class TestMain:
             '{"auth": {"require_auth": true}}',
         ]
         with patch('sys.argv', ['check_snapshot_diff.py']):
-            with pytest.raises(SystemExit) as exc:
-                check_snapshot_diff.main()
-        assert exc.value.code == 1
+            exit_code = check_snapshot_diff.main()
+        assert exit_code == 1
 
     # --- file deleted (valid old with security fields, None new) ---
     @patch('check_snapshot_diff.get_changed_files',
@@ -417,9 +452,8 @@ class TestMain:
             None,
         ]
         with patch('sys.argv', ['check_snapshot_diff.py']):
-            with pytest.raises(SystemExit) as exc:
-                check_snapshot_diff.main()
-        assert exc.value.code == 1
+            exit_code = check_snapshot_diff.main()
+        assert exit_code == 1
 
     # --- multiple files: only one has security diff ---
     @patch('check_snapshot_diff.get_changed_files',
@@ -435,9 +469,8 @@ class TestMain:
             '{"events": [{"topic": "B"}]}',           # danger.json — security diff
         ]
         with patch('sys.argv', ['check_snapshot_diff.py']):
-            with pytest.raises(SystemExit) as exc:
-                check_snapshot_diff.main()
-        assert exc.value.code == 1
+            exit_code = check_snapshot_diff.main()
+        assert exit_code == 1
         out = capsys.readouterr().out
         assert "danger.json" in out
 
@@ -447,16 +480,14 @@ class TestMain:
         with patch('sys.argv', ['check_snapshot_diff.py',
                                  '--base', 'origin/main',
                                  '--head', 'feature-branch']):
-            with pytest.raises(SystemExit):
-                check_snapshot_diff.main()
+            check_snapshot_diff.main()
         mock_gf.assert_called_once_with('origin/main', 'feature-branch')
 
     # --- default --base is HEAD, default --head is None ---
     @patch('check_snapshot_diff.get_changed_files', return_value=[])
     def test_default_cli_args(self, mock_gf):
         with patch('sys.argv', ['check_snapshot_diff.py']):
-            with pytest.raises(SystemExit):
-                check_snapshot_diff.main()
+            check_snapshot_diff.main()
         mock_gf.assert_called_once_with('HEAD', None)
 
     # --- multiple security diffs in the same file are all reported ---
@@ -469,9 +500,8 @@ class TestMain:
             '{"events": [{"topic": "new"}], "auth": {"require_auth": true}}',
         ]
         with patch('sys.argv', ['check_snapshot_diff.py']):
-            with pytest.raises(SystemExit) as exc:
-                check_snapshot_diff.main()
-        assert exc.value.code == 1
+            exit_code = check_snapshot_diff.main()
+        assert exit_code == 1
         out = capsys.readouterr().out
         assert "Security-relevant fields changed" in out
 
@@ -485,9 +515,8 @@ class TestMain:
             '{"error_code": 20}',
         ]
         with patch('sys.argv', ['check_snapshot_diff.py']):
-            with pytest.raises(SystemExit) as exc:
-                check_snapshot_diff.main()
-        assert exc.value.code == 1
+            exit_code = check_snapshot_diff.main()
+        assert exit_code == 1
 
     # --- storage field triggers gate ---
     @patch('check_snapshot_diff.get_changed_files',
@@ -499,9 +528,8 @@ class TestMain:
             '{"storage": {"key": "new_value"}}',
         ]
         with patch('sys.argv', ['check_snapshot_diff.py']):
-            with pytest.raises(SystemExit) as exc:
-                check_snapshot_diff.main()
-        assert exc.value.code == 1
+            exit_code = check_snapshot_diff.main()
+        assert exit_code == 1
 
 
 # ===========================================================================
@@ -561,3 +589,164 @@ class TestMainGuard:
                 run_name='check_snapshot_diff',
             )
         mock_main.assert_not_called()
+
+
+# ===========================================================================
+# Real event fixtures — KeeperCancelled / StreamCloned
+# ===========================================================================
+#
+# These fixtures model the actual payload shapes emitted by
+# ``contracts/stream/src/events.rs::emit_keeper_cancelled`` /
+# ``emit_stream_cloned``, whose field names come from the ``KeeperCancelled``
+# and ``StreamCloned`` structs in ``contracts/stream/src/types.rs``. No
+# committed ``contracts/stream/test_snapshots/*.json`` corpus exists yet in
+# this repository (the on-chain snapshot-writing harness is a separate,
+# not-yet-landed piece of work), so the fixtures below are modeled directly
+# on those struct definitions rather than copied byte-for-byte from disk.
+
+class TestRealEventFixtures:
+    """Security-relevance checks against real KeeperCancelled/StreamCloned shapes."""
+
+    def test_keeper_cancelled_keeper_fee_change_is_flagged(self):
+        old = _load_fixture('keeper_cancelled.json')
+        new = copy.deepcopy(old)
+        new['events'][0]['data']['keeper_fee'] = 750000
+
+        diffs = check_snapshot_diff.get_diff_paths(old, new)
+        assert 'events[0].data.keeper_fee' in diffs
+        assert any(check_snapshot_diff.is_security_relevant(d) for d in diffs)
+
+    def test_keeper_cancelled_keeper_address_change_is_flagged(self):
+        old = _load_fixture('keeper_cancelled.json')
+        new = copy.deepcopy(old)
+        new['events'][0]['data']['keeper'] = (
+            'GDIFFERENTKEEPERAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
+        )
+
+        diffs = check_snapshot_diff.get_diff_paths(old, new)
+        assert 'events[0].data.keeper' in diffs
+        assert any(check_snapshot_diff.is_security_relevant(d) for d in diffs)
+
+    def test_stream_cloned_destination_recipient_change_is_flagged(self):
+        old = _load_fixture('stream_cloned.json')
+        new = copy.deepcopy(old)
+        new['events'][0]['data']['recipient'] = (
+            'GDIFFERENTRECIPIENTAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
+        )
+
+        diffs = check_snapshot_diff.get_diff_paths(old, new)
+        assert 'events[0].data.recipient' in diffs
+        assert any(check_snapshot_diff.is_security_relevant(d) for d in diffs)
+
+    def test_stream_cloned_deposit_amount_change_is_flagged(self):
+        old = _load_fixture('stream_cloned.json')
+        new = copy.deepcopy(old)
+        new['events'][0]['data']['deposit_amount'] = 19999999
+
+        diffs = check_snapshot_diff.get_diff_paths(old, new)
+        assert 'events[0].data.deposit_amount' in diffs
+        assert any(check_snapshot_diff.is_security_relevant(d) for d in diffs)
+
+    def test_non_security_top_level_change_is_not_flagged(self):
+        """Control case: a top-level field outside ``events``/``data`` is not flagged."""
+        old = _load_fixture('stream_cloned.json')
+        new = copy.deepcopy(old)
+        new['ledger_sequence'] = old['ledger_sequence'] + 1
+
+        diffs = check_snapshot_diff.get_diff_paths(old, new)
+        assert diffs == ['ledger_sequence']
+        assert not any(check_snapshot_diff.is_security_relevant(d) for d in diffs)
+
+
+# ===========================================================================
+# End-to-end: real git repository, real commits, real subprocess calls
+# ===========================================================================
+#
+# Unlike the rest of this suite, these tests do not mock
+# ``subprocess.check_output`` or file I/O. They create a throwaway git
+# repository on disk, commit two real revisions of a snapshot JSON file, and
+# invoke ``check_snapshot_diff.main()`` with the resulting commit SHAs so the
+# script's real ``git diff --name-only`` / ``git show`` invocations run
+# end-to-end.
+
+class TestMainEndToEndRealGitRepo:
+    """Exercises main() against a real two-commit git history."""
+
+    SNAPSHOT_REL_PATH = 'contracts/stream/test_snapshots/keeper_cancelled.json'
+
+    def _init_repo(self, path):
+        _run_git(['init', '-q'], cwd=path)
+
+    def test_security_relevant_change_across_real_commits_exits_1(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        repo = str(tmp_path)
+        self._init_repo(repo)
+
+        baseline = _load_fixture('keeper_cancelled.json')
+        base_sha = _commit_snapshot(repo, self.SNAPSHOT_REL_PATH, baseline)
+
+        mutated = copy.deepcopy(baseline)
+        mutated['events'][0]['data']['keeper_fee'] = 750000
+        mutated['events'][0]['data']['recipient_amount'] = 8750000
+        head_sha = _commit_snapshot(repo, self.SNAPSHOT_REL_PATH, mutated)
+
+        monkeypatch.chdir(repo)
+        monkeypatch.setattr(check_snapshot_diff, "REPO_ROOT", Path(repo))
+        with patch('sys.argv', ['check_snapshot_diff.py', '--base', base_sha, '--head', head_sha]):
+            exit_code = check_snapshot_diff.main()
+
+        assert exit_code == 1
+        out = capsys.readouterr().out
+        assert 'Security-relevant fields changed' in out
+        assert self.SNAPSHOT_REL_PATH in out
+
+    def test_non_security_change_across_real_commits_exits_0(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        repo = str(tmp_path)
+        self._init_repo(repo)
+
+        rel_path = 'contracts/stream/test_snapshots/stream_cloned.json'
+        baseline = _load_fixture('stream_cloned.json')
+        base_sha = _commit_snapshot(repo, rel_path, baseline)
+
+        mutated = copy.deepcopy(baseline)
+        mutated['ledger_sequence'] = baseline['ledger_sequence'] + 1
+        mutated['stream_id'] = baseline['stream_id']
+        head_sha = _commit_snapshot(repo, rel_path, mutated)
+
+        monkeypatch.chdir(repo)
+        monkeypatch.setattr(check_snapshot_diff, "REPO_ROOT", Path(repo))
+        with patch('sys.argv', ['check_snapshot_diff.py', '--base', base_sha, '--head', head_sha]):
+            exit_code = check_snapshot_diff.main()
+
+        assert exit_code == 0
+        out = capsys.readouterr().out
+        assert 'No security-relevant snapshot changes detected.' in out
+
+    def test_identical_real_commits_exit_0(self, tmp_path, monkeypatch):
+        """Two commits touching an unrelated file leave the snapshot untouched."""
+        repo = str(tmp_path)
+        self._init_repo(repo)
+
+        baseline = _load_fixture('keeper_cancelled.json')
+        base_sha = _commit_snapshot(repo, self.SNAPSHOT_REL_PATH, baseline)
+
+        # Second commit touches an unrelated file only — no snapshot diff at all.
+        other_path = os.path.join(repo, 'README.md')
+        with open(other_path, 'w', encoding='utf-8') as f:
+            f.write('unrelated change\n')
+        _run_git(['add', '-A'], cwd=repo)
+        _run_git(['commit', '-m', 'docs: unrelated change'], cwd=repo)
+        head_sha = subprocess.check_output(
+            ['git', 'rev-parse', 'HEAD'], cwd=repo
+        ).decode('utf-8').strip()
+
+        monkeypatch.chdir(repo)
+        monkeypatch.setattr(check_snapshot_diff, "REPO_ROOT", Path(repo))
+        with patch('sys.argv', ['check_snapshot_diff.py', '--base', base_sha, '--head', head_sha]):
+            exit_code = check_snapshot_diff.main()
+
+        assert exit_code == 0
+

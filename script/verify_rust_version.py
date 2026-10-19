@@ -1,159 +1,169 @@
 #!/usr/bin/env python3
-"""Verify rustc matches the pinned rust-toolchain.toml channel."""
-
-from __future__ import annotations
+"""Verify the installed Rust toolchain version matches rust-toolchain.toml."""
 
 import os
 import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
 
 try:
     import tomllib
-except ModuleNotFoundError:  # pragma: no cover - Python < 3.11 fallback
-    import tomli as tomllib  # type: ignore[no-redef]
+except ModuleNotFoundError:  # pragma: no cover
+    tomllib = None
 
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parent.parent
 TOOLCHAIN_FILE = REPO_ROOT / "rust-toolchain.toml"
 
 
-def _load_toolchain(toolchain_file: Path) -> dict[str, Any]:
-    return tomllib.loads(toolchain_file.read_text(encoding="utf-8"))
+def _parse_toml_simple(content: str):
+    data = {}
+    section = None
+    for raw in content.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            section = line[1:-1].strip()
+            data.setdefault(section, {})
+            continue
+        if "=" not in line:
+            continue
+        key, value = [part.strip() for part in line.split("=", 1)]
+        value = value.strip()
+        if value.startswith('"') and value.endswith('"'):
+            value = value[1:-1]
+        elif value.startswith("[") and value.endswith("]"):
+            inner = value[1:-1].strip()
+            items = []
+            if inner:
+                for item in inner.split(","):
+                    item = item.strip().strip('"').strip("'")
+                    if item:
+                        items.append(item)
+            value = items
+        if section is not None:
+            data[section][key] = value
+    return data
 
 
-def pinned_channel(toolchain_file: Path = TOOLCHAIN_FILE) -> str:
-    data = _load_toolchain(toolchain_file)
+def _load_toolchain(path: Path | str | None = None):
+    file_path = Path(path) if path is not None else TOOLCHAIN_FILE
+    text = file_path.read_text(encoding="utf-8")
+    if tomllib is not None:
+        try:
+            return tomllib.loads(text)
+        except Exception:
+            pass
+    return _parse_toml_simple(text)
+
+
+def pinned_channel(toolchain_file: Path | str | None = None) -> str | None:
+    """Extract the channel string from rust-toolchain.toml."""
+    file_path = Path(toolchain_file) if toolchain_file is not None else TOOLCHAIN_FILE
+    data = _load_toolchain(file_path)
     channel = data.get("toolchain", {}).get("channel")
-    if not isinstance(channel, str) or not channel:
-        raise ValueError(f"missing [toolchain].channel in {toolchain_file}")
-    return channel
+    if channel is None:
+        return None
+    return str(channel)
 
 
-def pinned_targets(toolchain_file: Path = TOOLCHAIN_FILE) -> list[str]:
-    data = _load_toolchain(toolchain_file)
-    targets = data.get("toolchain", {}).get("targets", [])
-    if not isinstance(targets, list):
-        raise ValueError(f"invalid [toolchain].targets in {toolchain_file}")
-    return targets
-
-
-def pinned_components(toolchain_file: Path = TOOLCHAIN_FILE) -> list[str]:
-    data = _load_toolchain(toolchain_file)
-    components = data.get("toolchain", {}).get("components", [])
-    if not isinstance(components, list):
-        raise ValueError(f"invalid [toolchain].components in {toolchain_file}")
-    return components
-
-
-def parse_rustc_version(version_output: str) -> str:
-    match = re.match(r"^rustc\s+([^\s]+)", version_output.strip())
+def parse_rustc_version(output: str) -> str:
+    match = re.search(r"rustc\s+(\d+\.\d+\.\d+)", output)
     if not match:
-        raise ValueError(f"could not parse rustc version from: {version_output!r}")
+        raise ValueError("could not parse rustc version output")
     return match.group(1)
 
 
 def rustc_version() -> str:
-    override = os.environ.get("RUSTC_VERSION_OUTPUT")
-    if override:
-        return parse_rustc_version(override)
-
-    completed = subprocess.run(
-        ["rustc", "--version"],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return parse_rustc_version(completed.stdout)
+    raw = os.environ.get("RUSTC_VERSION_OUTPUT")
+    if raw:
+        return parse_rustc_version(raw)
+    result = subprocess.run(["rustc", "--version"], capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        raise RuntimeError("rustc --version failed")
+    return parse_rustc_version(result.stdout)
 
 
-def installed_targets() -> list[str]:
-    """Return a list of installed rustup targets.
-    
-    Security: The RUSTUP_TARGET_LIST_OUTPUT environment variable is intended for
-    testing purposes only and allows overriding the output of the rustup command.
-    """
-    override = os.environ.get("RUSTUP_TARGET_LIST_OUTPUT")
+def pinned_targets(toolchain_file: Path | str | None = None):
+    data = _load_toolchain(toolchain_file)
+    targets = data.get("toolchain", {}).get("targets")
+    if targets is None:
+        return []
+    if not isinstance(targets, list):
+        raise ValueError("invalid targets in rust-toolchain.toml")
+    return [str(v) for v in targets]
+
+
+def pinned_components(toolchain_file: Path | str | None = None):
+    data = _load_toolchain(toolchain_file)
+    components = data.get("toolchain", {}).get("components")
+    if components is None:
+        return []
+    if not isinstance(components, list):
+        raise ValueError("invalid components in rust-toolchain.toml")
+    return [str(v) for v in components]
+
+
+def _installed_rustup_lines(variable: str, command: list[str]) -> list[str]:
+    override = os.environ.get(variable)
     if override is not None:
-        return [line.strip() for line in override.splitlines() if line.strip()]
-
-    completed = subprocess.run(
-        ["rustup", "target", "list", "--installed"],
-        check=True,
+        return override.splitlines()
+    result = subprocess.run(
+        ["rustup", *command, "--installed"],
         capture_output=True,
         text=True,
+        check=False,
     )
-    return [line.strip() for line in completed.stdout.splitlines() if line.strip()]
-
-
-def installed_components() -> list[str]:
-    """Return a list of installed rustup components.
-    
-    Security: The RUSTUP_COMPONENT_LIST_OUTPUT environment variable is intended for
-    testing purposes only and allows overriding the output of the rustup command.
-    """
-    override = os.environ.get("RUSTUP_COMPONENT_LIST_OUTPUT")
-    if override is not None:
-        return [line.strip() for line in override.splitlines() if line.strip()]
-
-    completed = subprocess.run(
-        ["rustup", "component", "list", "--installed"],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return [line.strip() for line in completed.stdout.splitlines() if line.strip()]
+    if result.returncode != 0:
+        raise RuntimeError(f"rustup {' '.join(command)} --installed failed")
+    return result.stdout.splitlines()
 
 
 def main() -> int:
     try:
-        expected_channel = pinned_channel()
-        actual_channel = rustc_version()
-        
-        expected_targets = set(pinned_targets())
-        actual_targets = set(installed_targets())
-        
-        expected_components = set(pinned_components())
-        actual_components = set(installed_components())
+        expected = pinned_channel()
+        if expected is None:
+            print("::error:: rust-toolchain.toml is missing [toolchain].channel", file=sys.stderr)
+            return 1
+
+        installed = rustc_version()
+        if installed != expected:
+            print(f"Rust version mismatch: expected {expected}, got {installed}", file=sys.stderr)
+            return 1
+        print(f"Rust version matches pinned {expected}")
+
+        installed_targets = _installed_rustup_lines(
+            "RUSTUP_TARGET_LIST_OUTPUT", ["target", "list"]
+        )
+        required_targets = pinned_targets()
+        missing_targets = [t for t in required_targets if t not in installed_targets]
+        if missing_targets:
+            print(f"Missing required targets: {', '.join(missing_targets)}", file=sys.stderr)
+            return 1
+        print("Installed targets match requirements")
+
+        installed_components = _installed_rustup_lines(
+            "RUSTUP_COMPONENT_LIST_OUTPUT", ["component", "list"]
+        )
+        required_components = pinned_components()
+        missing_components = [
+            component
+            for component in required_components
+            if not any(
+                installed == component or installed.startswith(f"{component}-")
+                for installed in installed_components
+            )
+        ]
+        if missing_components:
+            print(f"Missing required components: {', '.join(missing_components)}", file=sys.stderr)
+            return 1
+        print("Installed components match requirements")
+        return 0
     except Exception as exc:
-        print(f"::error::{exc}", file=sys.stderr)
+        print(f"::error:: {exc}", file=sys.stderr)
         return 1
-
-    errors = 0
-
-    if actual_channel != expected_channel:
-        print(
-            f"::error::Rust version mismatch: expected {expected_channel}, got {actual_channel}",
-            file=sys.stderr,
-        )
-        errors += 1
-    else:
-        print(f"Rust version matches pinned {expected_channel}")
-
-    missing_targets = expected_targets - actual_targets
-    if missing_targets:
-        print(
-            f"::error::Missing required targets: {', '.join(sorted(missing_targets))}",
-            file=sys.stderr,
-        )
-        errors += 1
-    elif expected_targets:
-        print(f"Installed targets match requirements: {', '.join(sorted(expected_targets))}")
-
-    missing_components = expected_components - actual_components
-    if missing_components:
-        print(
-            f"::error::Missing required components: {', '.join(sorted(missing_components))}",
-            file=sys.stderr,
-        )
-        errors += 1
-    elif expected_components:
-        print(f"Installed components match requirements: {', '.join(sorted(expected_components))}")
-
-    return 1 if errors else 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    sys.exit(main())

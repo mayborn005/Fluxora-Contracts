@@ -1,123 +1,173 @@
 #!/usr/bin/env python3
-import json
-import sys
-import subprocess
-import os
-import argparse
+"""Check snapshot security-field diffs between PR and base branch.
 
-# "Security-relevant" fields based on docs/maintainer-security-checklist.md
+Parses snapshot JSON files changed in a PR and exits 1 if any
+security-relevant field (auth, events, error codes, storage) was altered.
+"""
+
+import argparse
+import json
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+# Security-relevant fields in snapshot JSON files.
 SECURITY_FIELDS = {
-    'auth', 'auths', 'require_auth', 'signatures', 
-    'events', 'topic', 'topics', 'data',
-    'error', 'error_code', 'ContractError',
-    'storage', 'state', 'DataKey'
+    "auth",
+    "auths",
+    "require_auth",
+    "signatures",
+    "events",
+    "event",
+    "topic",
+    "topics",
+    "data",
+    "error",
+    "error_code",
+    "ContractError",
+    "storage",
+    "storage_keys",
+    "state",
+    "DataKey",
+    "contract_errors",
 }
 
-def get_changed_files(base, head):
-    # If head is None, compare base to working tree
-    if head:
-        cmd = ['git', 'diff', '--name-only', base, head]
-    else:
-        cmd = ['git', 'diff', '--name-only', base]
-    try:
-        output = subprocess.check_output(cmd).decode('utf-8')
-        return [f for f in output.splitlines() if '/test_snapshots/' in f and f.endswith('.json')]
-    except subprocess.CalledProcessError:
+
+def is_security_relevant(path: str) -> bool:
+    """Return True when a JSON diff path is security relevant."""
+    if not path:
+        return False
+    components = {
+        component.lower()
+        for component in re.findall(r"[A-Za-z_][A-Za-z_0-9]*", path)
+    }
+    return any(field.lower() in components for field in SECURITY_FIELDS)
+
+
+def _join_path(prefix: str, key: str) -> str:
+    if not prefix:
+        return key
+    return f"{prefix}.{key}"
+
+
+def get_diff_paths(old, new, prefix: str = ""):
+    """Recursively compute a list of changed JSON paths."""
+    if type(old) != type(new):
+        return [prefix] if prefix else [""]
+    if old == new:
         return []
 
-def get_file_content(commit, path):
-    # If commit is None, read from local file system
-    if not commit:
-        if os.path.exists(path):
-            with open(path, 'r', encoding='utf-8') as f:
-                return f.read()
-        return None
-    try:
-        return subprocess.check_output(['git', 'show', f"{commit}:{path}"]).decode('utf-8')
-    except subprocess.CalledProcessError:
-        return None
-
-def get_diff_paths(old, new, path=""):
-    """
-    Recursively compares old and new JSON structures and returns a list of JSON paths
-    that have changed.
-    """
-    diffs = []
-    if type(old) != type(new):
-        diffs.append(path)
-    elif isinstance(old, dict):
-        for k in set(old.keys()).union(new.keys()):
-            new_path = f"{path}.{k}" if path else k
-            if k not in old or k not in new:
-                diffs.append(new_path)
+    if isinstance(old, dict):
+        diffs = []
+        keys = set(old) | set(new)
+        for key in sorted(keys):
+            if key not in old:
+                diffs.append(_join_path(prefix, key) if prefix else key)
+            elif key not in new:
+                diffs.append(_join_path(prefix, key) if prefix else key)
             else:
-                diffs.extend(get_diff_paths(old[k], new[k], new_path))
-    elif isinstance(old, list):
+                diffs.extend(get_diff_paths(old[key], new[key], _join_path(prefix, key) if prefix else key))
+        return diffs
+
+    if isinstance(old, list):
+        diffs = []
+        length = min(len(old), len(new))
+        for idx in range(length):
+            diffs.extend(get_diff_paths(old[idx], new[idx], f"{prefix}[{idx}]" if prefix else f"[{idx}]"))
         if len(old) != len(new):
-            diffs.append(path)
+            diffs.append(prefix if prefix else "")
+        return diffs
+
+    return [prefix] if prefix else [""]
+
+
+def get_changed_files(base: str, head=None) -> list[str]:
+    """Return JSON snapshot files changed between base and head."""
+    try:
+        if head is None:
+            cmd = ["git", "diff", "--name-only", base]
         else:
-            for i, (o, n) in enumerate(zip(old, new)):
-                diffs.extend(get_diff_paths(o, n, f"{path}[{i}]"))
-    else:
-        if old != new:
-            diffs.append(path)
-    return diffs
+            cmd = ["git", "diff", "--name-only", base, head]
+        out = subprocess.check_output(cmd, cwd=REPO_ROOT, text=False)
+    except (subprocess.CalledProcessError, OSError):
+        return []
 
-def is_security_relevant(path):
-    # path is like 'tx.events[0].topic'
-    # we split by . and [ and check against SECURITY_FIELDS
-    parts = path.replace('[', '.').replace(']', '').split('.')
-    for part in parts:
-        if part in SECURITY_FIELDS:
-            return True
-    return False
+    files = []
+    for line in out.decode("utf-8", errors="replace").splitlines():
+        path = line.strip()
+        if path.endswith(".json") and "test_snapshots" in path:
+            files.append(path)
+    return files
 
-def main():
-    parser = argparse.ArgumentParser(description="Diff snapshot JSONs and flag security-relevant changes.")
-    parser.add_argument('--base', default='HEAD', help='Base commit (default: HEAD)')
-    parser.add_argument('--head', default=None, help='Head commit (default: working tree)')
+
+def get_file_content(commit, path):
+    """Return file content from git history or disk."""
+    if commit is not None:
+        try:
+            out = subprocess.check_output(["git", "show", f"{commit}:{path}"])
+            return out.decode("utf-8", errors="replace")
+        except (subprocess.CalledProcessError, OSError, ValueError):
+            return None
+    full = REPO_ROOT / path
+    if not full.exists():
+        return None
+    return full.read_text(encoding="utf-8")
+
+
+def _safe_json(text):
+    if text is None:
+        return {}
+    try:
+        return json.loads(text)
+    except (TypeError, ValueError):
+        return {}
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Check snapshot security diffs")
+    parser.add_argument("--base", default="HEAD", help="Base ref to compare against")
+    parser.add_argument("--head", default=None, help="Optional head ref to compare against")
     args = parser.parse_args()
 
-    files = get_changed_files(args.base, args.head)
-    
-    if not files:
+    changed = get_changed_files(args.base, args.head)
+    if not changed:
         print("No snapshot JSON files changed.")
-        sys.exit(0)
+        return 0
 
-    flagged = False
-    for f in files:
-        old_content = get_file_content(args.base, f)
-        new_content = get_file_content(args.head, f)
+    print(f"Checking {len(changed)} changed snapshot file(s)...")
+    found_security = False
+    messages = []
 
-        try:
-            old_json = json.loads(old_content) if old_content else {}
-        except json.JSONDecodeError:
-            old_json = {}
-            
-        try:
-            new_json = json.loads(new_content) if new_content else {}
-        except json.JSONDecodeError:
-            new_json = {}
+    for rel_path in changed:
+        old_text = get_file_content(args.base, rel_path)
+        new_text = get_file_content(args.head, rel_path)
+        old_data = _safe_json(old_text)
+        new_data = _safe_json(new_text)
 
-        diffs = get_diff_paths(old_json, new_json)
-        
-        security_diffs = [d for d in diffs if is_security_relevant(d)]
-        
-        if security_diffs:
-            flagged = True
-            print(f"\n[WARNING] Security-relevant fields changed in: {f}")
-            for sd in set(security_diffs):
-                print(f"  - {sd}")
-        else:
-            if diffs:
-                print(f"\n[INFO] Changes in {f} (none are security-relevant)")
+        diffs = get_diff_paths(old_data, new_data)
+        security_paths = [d for d in diffs if is_security_relevant(d)]
+        if security_paths:
+            found_security = True
+            messages.append(f"{rel_path}: {', '.join(sorted(set(security_paths)))}")
+        elif diffs:
+            print(
+                f"[INFO] Changes in {rel_path}: {', '.join(sorted(set(diffs)))}; "
+                "none are security-relevant."
+            )
 
-    if flagged:
-        print("\nMandatory extra review required due to security-relevant snapshot changes.")
-        sys.exit(1)
-    else:
-        print("\nNo security-relevant snapshot changes detected.")
-        sys.exit(0)
+    if found_security:
+        print("Security-relevant fields changed:")
+        for msg in messages:
+            print(f"  - {msg}")
+        print("\nMandatory extra review required.")
+        return 1
 
-if __name__ == '__main__':
-    main()
+    print("No security-relevant snapshot changes detected.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
