@@ -1,852 +1,490 @@
-//! Type definitions for the Fluxora stream contract.
-//!
-//! Contains all `#[contracttype]` structs, enums, and the `ContractError`
-//! definition used across the contract. The `DataKey` enum (storage key
-//! discriminants) is also defined here — **variant order must never change**.
-//!
-//! See `docs/storage.md` for the full module map and TTL policy.
+use soroban_sdk::{contracttype, Address, String};
 
-#![allow(clippy::too_many_arguments)]
+/// Maximum length for stream reference strings.
+///
+/// This limit balances utility with storage costs. References are intended for
+/// short identifiers like "payroll-001" or "grant-xyz-q1-2024".
+pub const MAX_REFERENCE_LENGTH: u32 = 64;
 
-use soroban_sdk::{contracttype, Address, Map};
-
-// Data types
-// ---------------------------------------------------------------------------
-
-/// Maximum number of recipients allowed in a single pooled stream.
-pub const MAX_POOL_RECIPIENTS: u32 = 100;
-
-/// Global configuration for the Fluxora protocol.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Config {
-    pub token: Address,
-    pub admin: Address,
+/// Bitmask constants for which operations a delegate is permitted to perform.
+///
+/// Pass one constant or OR several together when calling [`crate::FluxoraStream::grant_delegate`].
+/// New bits may be added; existing values are stable ABI.
+pub mod op {
+    pub const WITHDRAW: u32 = 1 << 0;
+    pub const CANCEL: u32 = 1 << 1;
+    pub const PAUSE: u32 = 1 << 2;
+    pub const RESUME: u32 = 1 << 3;
+    pub const TOP_UP: u32 = 1 << 4;
+    pub const TRANSFER_RECIPIENT: u32 = 1 << 5;
 }
 
-/// An active ID reservation held by a caller after `reserve_stream_ids`.
+/// A delegation grant stored in persistent storage.
+///
+/// Scoped to one `(stream_id, delegate)` pair. The grantor is implied by which
+/// bits are set: sender-side ops (`CANCEL`, `PAUSE`, `RESUME`, `TOP_UP`) can
+/// only be granted by the sender; recipient-side ops (`WITHDRAW`,
+/// `TRANSFER_RECIPIENT`) can only be granted by the recipient.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct IdReservation {
-    pub start_id: u64,
-    pub count: u32,
-    pub consumed: u32,
-    pub expiry: Option<u64>,
+pub struct DelegateGrant {
+    /// Bitmask of [`Op`] constants the delegate may invoke.
+    pub ops: u32,
+    /// Unix seconds after which this grant is no longer valid.
+    /// `None` means the grant never expires on its own.
+    pub expires_at: Option<u64>,
 }
 
-/// Reason for a protocol or stream pause.
+/// What one `batch_cancel` call did.
+///
+/// A batch is all-or-nothing, so this has exactly two shapes: the whole vector
+/// settled, in which case `refused_index` and `refused_reason` are `None` and
+/// `refunded` is the total handed back to the sender; or nothing was touched,
+/// in which case `refunded` is `0` and the two `refused_*` fields name the
+/// stream that stopped the batch.
+///
+/// The refusal travels in the return value rather than in a typed `Error`
+/// because a Soroban contract error crosses the wire as a bare `u32`
+/// discriminant (`Error(Contract, #N)`) with no room for a position. The
+/// caller learns which element to drop, and why, without re-reading the whole
+/// batch.
 #[contracttype]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum PauseReason {
-    Operational = 0,
-    Administrative = 1,
-    Emergency = 2,
-    Compliance = 3,
+pub struct BatchCancelOutcome {
+    /// Total refunded to the sender by this call, in the smallest unit of each
+    /// stream's own token. Always `0` when `refused_index` is `Some`, because a
+    /// refused batch changes nothing.
+    pub refunded: i128,
+
+    /// Zero-based position in the submitted vector of the first stream that
+    /// could not be cancelled. `None` when the batch settled.
+    pub refused_index: Option<u32>,
+
+    /// Discriminant of the [`crate::Error`] that stopped that stream:
+    /// `NotCancellable` (8) for a stream created with `cancellable == false`,
+    /// `StreamTerminated` (14) for one already `Cancelled` or `Depleted`.
+    /// `None` when the batch settled.
+    pub refused_reason: Option<u32>,
 }
 
-/// Struct for per-stream or per-protocol pause records.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct StreamPaused {
-    pub stream_id: u64,
-    pub reason: soroban_sdk::String,
-}
-
-/// Health report for a stream.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct StreamHealth {
-    pub is_underfunded: bool,
-    pub is_expired: bool,
-    pub accrued_to_date: u128,
-    pub remaining_deposit: u128,
-    pub seconds_until_depletion: Option<u64>,
-}
-
-/// Operational status of a stream, determining which operations are allowed.
+/// Lifecycle state of a stream.
 ///
-/// The status controls the stream's lifecycle and affects both accrual calculation
-/// and operation availability. Status transitions follow strict rules to maintain
-/// system integrity and prevent unauthorized state changes.
-///
-/// ## State Transition Rules
-///
-/// ```text
-/// Active ↔ Paused    (via pause_stream/resume_stream)
-/// Active → Cancelled (via cancel_stream, terminal)
-/// Paused → Cancelled (via cancel_stream, terminal)
-/// Active → Completed (via withdraw when withdrawn_amount == deposit_amount, terminal)
-/// ```
-///
-/// Terminal states (`Completed`, `Cancelled`) cannot transition to other states.
-///
-/// ## Time-Terminal Behavior
-///
-/// When `current_time >= end_time`, the stream is considered "time-terminal":
-/// - Pause/resume operations are blocked (`StreamTerminalState` error)
-/// - Withdrawals are always allowed regardless of `Paused` status
-/// - This ensures recipients can always claim their full entitlement
+/// `Cancelled` and `Depleted` are both terminal and both imply
+/// withdrawable == 0` will eventually hold, but they are kept distinct so the
+/// indexer can tell "dan to completion" apart from "sender clawed back the
+/// unvested remainder". `Cancelled` is sticky: a cancelled stream that is
+/// subsequently drained to zero stays `Cancelled` rather than becoming
+/// `Depleted`.
 #[contracttype]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum StreamStatus {
-    /// Stream is operating normally.
-    ///
-    /// **Allowed operations:**
-    /// - Withdrawals (if past `cliff_time`)
-    /// - Pause/resume (if before `end_time`)
-    /// - Rate updates and schedule changes
-    /// - Cancellation
-    /// - Top-ups
-    ///
-    /// **Accrual behavior:** Tokens accrue normally based on elapsed time.
     Active = 0,
-
-    /// Stream is temporarily suspended by the sender.
-    ///
-    /// **Blocked operations:**
-    /// - Withdrawals (unless past `end_time` - time-terminal override)
-    ///
-    /// **Allowed operations:**
-    /// - Resume (if before `end_time`)
-    /// - Rate updates and schedule changes
-    /// - Cancellation
-    /// - Top-ups
-    ///
-    /// **Accrual behavior:** Tokens continue to accrue normally. Pause only
-    /// blocks withdrawals, not the mathematical accrual of entitlements.
-    ///
-    /// **Time-terminal override:** If `current_time >= end_time`, withdrawals
-    /// are allowed even in `Paused` status to ensure recipient access to funds.
     Paused = 1,
-
-    /// Stream has been fully withdrawn (terminal state).
-    ///
-    /// **Trigger:** Automatically set when `withdrawn_amount == deposit_amount`
-    ///
-    /// **Allowed operations:**
-    /// - `close_completed_stream` (storage cleanup)
-    /// - Read-only queries
-    ///
-    /// **Blocked operations:** All mutation operations
-    ///
-    /// **Accrual behavior:** Returns `deposit_amount` (deterministic, timestamp-independent)
-    Completed = 2,
-
-    /// Stream was terminated early by sender or admin (terminal state).
-    ///
-    /// **Trigger:** Set by `cancel_stream` or `cancel_stream_as_admin`
-    ///
-    /// **Effects:**
-    /// - Accrual is frozen at `cancelled_at` timestamp
-    /// - Unstreamed portion is refunded to sender
-    /// - Recipient can still withdraw accrued amount up to cancellation
-    ///
-    /// **Allowed operations:**
-    /// - Withdrawals (of frozen accrued amount only)
-    /// - `close_completed_stream` (after full recipient withdrawal)
-    /// - Read-only queries
-    ///
-    /// **Blocked operations:** All other mutation operations
-    ///
-    /// **Accrual behavior:** Frozen at `cancelled_at` - no post-cancellation growth
-    Cancelled = 3,
+    Cancelled = 2,
+    Depleted = 3,
 }
 
-/// The architectural style of the stream (Linear or CliffOnly).
+impl StreamStatus {
+    /// Terminal states accept no further lifecycle transitions.
+    pub fn is_terminal(&self) -> bool {
+        matches!(self, StreamStatus::Cancelled | StreamStatus::Depleted)
+    }
+}
+
+/// The shape of the release schedule between the cliff and maturity.
+///
+/// Selected once, at creation, and never mutable — like the capability flags,
+/// this is a trust feature: a recipient who accepts a front-loaded stream has
+/// verified on chain that the shape cannot be flattened afterwards.
+///
+/// Every curve shares three properties, and those properties are what the
+/// contract's invariants ([`crate::accrual`] I2 and I4) rely on:
+///
+/// 1. **Monotone non-decreasing** on the stream clock: `f(u + 1) >= f(u)`.
+///    Accrual can never go backwards in time.
+/// 2. **`f(0) == 0`** — nothing vests before the start instant.
+/// 3. **`f(duration) == deposited`** — the schedule settles exactly at
+///    maturity, so the recipient's total entitlement is `deposited` whichever
+///    curve they are offered and the contract can never be short.
+///
+/// The variants differ only in *when* the deposit is delivered, never in how
+/// much. [`ReleaseCurve::Linear`] is the default and reproduces the original
+/// `floor(deposited * elapsed / duration)` arithmetic exactly, so a stream
+/// created by [`crate::FluxoraStream::create_stream`] behaves identically to
+/// one created before curves existed.
 #[contracttype]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum StreamKind {
-    /// Vesting/payment stream that accrues linearly over time.
+pub enum ReleaseCurve {
+    /// Straight line above the cliff: `floor(deposited * elapsed / duration)`.
+    /// The default, and the arithmetic every pre-existing stream uses.
     Linear = 0,
-    /// Stream that unlocks its full deposit at the cliff time in a one-shot event.
-    CliffOnly = 1,
-    /// Stream that accrues linearly from cliff_time to end_time, and nothing before.
-    CliffSlope = 2,
+    /// Four equal tranches, each opening once a quarter of the schedule has
+    /// been consumed — a milestone schedule where the "milestones" are
+    /// quarter-boundaries. Nothing accrues inside a tranche; the recipient's
+    /// claim jumps by a quarter of the deposit at each boundary.
+    Step = 1,
+    /// `f(u) = 2u - u²` on `u = elapsed / duration`: accelerates early and
+    /// decelerates into maturity, so the recipient is always at or ahead of
+    /// the linear schedule and the sender's exposure is front-loaded.
+    FrontLoaded = 2,
 }
 
-#[soroban_sdk::contracterror]
-#[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord)]
-#[repr(u32)]
-pub enum ContractError {
-    StreamNotFound = 1,
-    InvalidState = 2,
-    InvalidParams = 3,
-    /// Global emergency pause is active; stream creation is blocked.
-    ContractPaused = 4,
-    /// Start time is before the current ledger timestamp.
-    StartTimeInPast = 5,
-    /// Arithmetic overflow in stream calculations (e.g. deposit total).
-    ArithmeticOverflow = 6,
-    /// Caller is not authorized to perform this operation.
-    Unauthorized = 7,
-    /// Contract is already initialized.
-    AlreadyInitialised = 8,
-    /// The token contract did not expose the expected SEP-41 interface during init.
-    TokenVerificationFailed = 88,
-    /// Token balance or allowance is insufficient (emulated check if possible, otherwise caught by token client).
-    InsufficientBalance = 9,
-    /// Deposit amount does not cover the total streamable amount.
-    InsufficientDeposit = 10,
-    /// Stream is already in Paused state.
-    StreamAlreadyPaused = 11,
-    /// Stream is not in Paused state (e.g. trying to resume an Active stream).
-    StreamNotPaused = 12,
-    /// Stream is in a terminal state (Completed or Cancelled) and cannot be modified.
-    StreamTerminalState = 13,
-    /// Duplicate stream IDs were supplied to a batch operation.
-    DuplicateStreamId = 14,
-    /// Delegated withdrawal signature is invalid or expired.
-    InvalidSignature = 15,
-    /// Accrued amount is below the expected minimum specified in the signed payload.
-    BelowMinimumAmount = 16,
-    /// `reserve_stream_ids` was called with `count = 0`.
-    ReservationCountZero = 17,
-    /// `reserve_stream_ids` was called with `count > MAX_ID_RESERVATION`.
-    ReservationLimitExceeded = 18,
-    /// Delegated withdrawal signature deadline has expired.
-    SignatureDeadlineExpired = 19,
-    /// Template not found.
-    TemplateNotFound = 20,
-    /// Template limit exceeded (per-owner or global).
-    TemplateLimitExceeded = 21,
-    /// Caller not authorized to delete template.
-    TemplateUnauthorized = 22,
-    /// Pause reason string exceeds `MAX_PAUSE_REASON_BYTES`.
-    PauseReasonTooLong = 23,
-    ReservationNotFound = 24,
-    ReservationNotExpirable = 25,
-    ClockRegression = 27,
-    ReservationStillActive = 26,
-    ReservationAlreadyActive = 34,
-    /// Stream kind does not support this operation (e.g., rate changes on CliffOnly).
-    UnsupportedStreamKind = 28,
-    /// New rate exceeds the governance-controlled maximum rate per second.
-    RateCapExceeded = 29,
-    /// Pause/resume toggled too recently; cooldown period not yet elapsed.
-    PauseCooldownActive = 30,
-    /// Withdrawal attempted too soon after the previous withdrawal.
-    WithdrawalTooFrequent = 31,
-    /// Metadata map or individual key/value exceeds the allowed size limit.
-    MetadataTooLarge = 32,
-    /// Keeper attempted to cancel before grace period has elapsed past end_time.
-    KeeperGracePeriodNotElapsed = 33,
-    /// Withdraw dust threshold is negative or exceeds deposit amount.
-    InvalidDustThreshold = 35,
-    /// Rate change attempted too soon after a previous rate change.
-    RateCooldownActive = 36,
-}
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum StreamEvent {
-    Paused(u64),
-    Resumed(u64),
-    StreamCancelled(u64),
-    StreamCompleted(u64),
-    StreamClosed(u64),
-}
-
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct StreamCreated {
-    pub stream_id: u64,
-    pub sender: Address,
-    pub recipient: Address,
-    pub deposit_amount: i128,
-    pub rate_per_second: i128,
-    pub start_time: u64,
-    pub cliff_time: u64,
-    pub end_time: u64,
-    /// Optional withdrawal threshold (raw units). Withdrawals below this
-    /// amount are skipped unless they are the final drain or the stream is terminal.
-    pub withdraw_dust_threshold: i128,
-    /// Optional bounded memo for indexer correlation (e.g. payroll batch ID).
-    /// `None` when no memo was supplied at creation time.
-    pub memo: Option<soroban_sdk::Bytes>,
-    /// Optional structured metadata emitted for indexer consumption.
-    /// Mirrors the validated `metadata` field stored on the stream.
-    pub metadata: Option<Map<soroban_sdk::Bytes, soroban_sdk::Bytes>>,
-}
-
-/// Emitted when a stream is cloned via `clone_stream`.
+/// Which clock the cliff gate is measured against.
 ///
-/// Carries both the source stream ID (for audit trail) and the full parameters
-/// of the newly created stream so indexers can correlate the two without a
-/// separate `get_stream_state` call.
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct StreamCloned {
-    /// The newly created stream's ID.
-    pub new_stream_id: u64,
-    /// The source stream that was cloned.
-    pub source_stream_id: u64,
-    /// Sender of the new stream (same as the caller / original sender).
-    pub sender: Address,
-    /// Recipient of the new stream (may differ from the source stream's recipient).
-    pub recipient: Address,
-    /// Deposit amount locked into the new stream.
-    pub deposit_amount: i128,
-    /// Rate per second inherited from the source stream.
-    pub rate_per_second: i128,
-    /// Absolute start time of the new stream.
-    pub start_time: u64,
-    /// Cliff time of the new stream (preserves the source cliff offset).
-    pub cliff_time: u64,
-    /// End time of the new stream.
-    pub end_time: u64,
-}
-
-/// Result of a single stream creation attempt in a partial batch.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CreateStreamResult {
-    /// True if the stream was created successfully.
-    pub success: bool,
-    /// The unique identifier of the created stream (None if success is false).
-    pub stream_id: Option<u64>,
-    /// The error code if the creation failed (None if success is true).
-    pub error: Option<u32>,
-}
-
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct Withdrawal {
-    pub stream_id: u64,
-    pub recipient: Address,
-    pub amount: i128,
-}
-
-/// Emitted when a recipient withdraws to a specified destination via `withdraw_to`.
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct WithdrawalTo {
-    pub stream_id: u64,
-    pub recipient: Address,
-    pub destination: Address,
-    pub amount: i128,
-}
-
-/// Emitted when a recipient rotates their receiving address for a stream.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct RecipientUpdated {
-    pub stream_id: u64,
-    pub old_recipient: Address,
-    pub new_recipient: Address,
-}
-
-/// Emitted when a recipient delegates a portion of their stream to a new recipient.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct RecipientShareDelegated {
-    pub parent_stream_id: u64,
-    pub child_stream_id: u64,
-    pub delegator: Address,
-    pub delegatee: Address,
-    pub share_bps: u32,
-    pub new_parent_rate: i128,
-    pub child_rate: i128,
-}
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct PendingRecipientUpdate {
-    pub stream_id: u64,
-    pub proposed_recipient: Address,
-}
-
-/// Per-stream result for `batch_withdraw`.
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct BatchWithdrawResult {
-    pub stream_id: u64,
-    pub amount: i128,
-}
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct WithdrawToParam {
-    pub stream_id: u64,
-    pub destination: Address,
-}
-
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct RateUpdated {
-    pub stream_id: u64,
-    pub old_rate_per_second: i128,
-    pub new_rate_per_second: i128,
-    /// Ledger timestamp when the rate update became effective.
-    pub effective_time: u64,
-}
-
-/// Event emitted when a rate update is rejected due to exceeding the governance cap.
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct RateCapEnforced {
-    pub stream_id: u64,
-    pub attempted_rate: i128,
-    pub max_rate_per_second: i128,
-}
-
-/// Emitted when the sender safely decreases the streaming rate via `decrease_rate_per_second`.
+/// The cliff *gates* the payout; it does not delay accrual, and both modes
+/// agree on that. They differ only in **which timeline the gate is read
+/// against**, which matters exactly once: what pausing does to it.
 ///
-/// The `checkpointed_amount` field records how many tokens were mathematically
-/// accrued under the **old** rate at the moment of the rate change. The new rate
-/// is applied only to the remaining stream duration from `effective_time` onward.
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct RateDecreased {
-    pub stream_id: u64,
-    pub old_rate_per_second: i128,
-    pub new_rate_per_second: i128,
-    /// Ledger timestamp when the decrease became effective (== `checkpointed_at`).
-    pub effective_time: u64,
-    /// Accrued amount locked in at `effective_time` under the old rate.
-    pub checkpointed_amount: i128,
-    /// Tokens refunded to the sender: `old_deposit - new_max_payable`.
-    pub refund_amount: i128,
-}
-
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct StreamEndShortened {
-    /// Stream whose schedule was shortened.
-    pub stream_id: u64,
-    /// Previous `end_time` before this mutation.
-    pub old_end_time: u64,
-    /// New `end_time` after this mutation.
-    pub new_end_time: u64,
-    /// Tokens refunded to sender: `old_deposit_amount - new_deposit_amount`.
-    pub refund_amount: i128,
-}
-
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct StreamEndExtended {
-    pub stream_id: u64,
-    pub old_end_time: u64,
-    pub new_end_time: u64,
-}
-
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct StreamToppedUp {
-    pub stream_id: u64,
-    pub top_up_amount: i128,
-    pub new_deposit_amount: i128,
-    /// `end_time` after the top-up (unchanged by top-up itself; included so
-    /// indexers can correlate with any subsequent `extend_stream_end_time` call).
-    pub new_end_time: u64,
-}
-
-/// Emitted when the stream sender is rotated via `transfer_sender`.
+/// `pause` is sender-only and unbounded, so on a [`CliffMode::Schedule`] stream
+/// a sender can defer the recipient's first withdrawal arbitrarily far by
+/// pausing before the cliff and holding it there. A recipient who agreed to a
+/// cliff *date* has no way to defend against that, because the stored
+/// `cliff_time` never moves — only the effective instant does, by
+/// `paused_total`. See `docs/KNOWN-LIMITATIONS.md` §7.
 ///
-/// The `old_sender` loses all sender-role privileges (pause, cancel, rate updates, etc.)
-/// and the `new_sender` gains them immediately. Recipient entitlement is unchanged.
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct SenderTransferred {
-    pub stream_id: u64,
-    pub old_sender: Address,
-    pub new_sender: Address,
-}
-
-/// Emitted when a stream's claim ownership is transferred.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ClaimOwnershipTransferred {
-    pub stream_id: u64,
-    pub old_owner: Option<Address>,
-    pub new_owner: Address,
-}
-
-/// Emitted when a stream's funding health status transitions between
-/// adequately funded and underfunded states.
+/// [`CliffMode::WallClock`] is the opt-out: the gate opens at `cliff_time` on
+/// the ledger clock, whatever pausing does. It changes *when the gate opens*,
+/// never *how much accrues* — a paused wall-clock stream still accrues nothing,
+/// so the recipient gains access to what they had already earned by the pause
+/// instant, and no more.
 ///
-/// A stream is **underfunded** when `remaining_balance < rate_per_second × seconds_remaining`.
-/// Terminal streams (`Completed`, `Cancelled`) always have `seconds_remaining = 0`
-/// and are never considered underfunded.
+/// # Why both are safe
 ///
-/// This event is only emitted when the `is_underfunded` flag actually changes,
-/// not on every mutation.
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct StreamHealthChanged {
-    pub stream_id: u64,
-    pub is_underfunded: bool,
-    pub remaining_balance: i128,
-    pub seconds_remaining: u64,
-}
-
-/// Emitted when the contract admin toggles the global emergency pause flag.
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct GlobalEmergencyPauseChanged {
-    pub paused: bool,
-}
-
-/// Emitted when the admin sweeps excess tokens from the contract.
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct ExcessSwept {
-    pub to: Address,
-    pub amount: i128,
-}
-
-/// Emitted when a recipient sets an auto-claim destination.
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct AutoClaimSet {
-    pub stream_id: u64,
-    pub destination: Address,
-}
-
-/// Emitted when a recipient revokes their auto-claim destination.
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct AutoClaimRevoked {
-    pub stream_id: u64,
-}
-
-/// Emitted when an auto-claim is triggered.
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct AutoClaimTriggered {
-    pub stream_id: u64,
-    pub destination: Address,
-    pub amount: i128,
-}
-
-/// Payload for a valid auto-claim destination.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct AutoClaimValidPayload {
-    pub destination: Address,
-    pub claimable: i128,
-}
-
-/// Payload for an invalid auto-claim destination.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct AutoClaimInvalidPayload {
-    pub destination: Address,
-}
-
-/// Status of auto-claim configuration for a stream.
+/// The two modes are branches inside a single pure predicate over one immutable
+/// field and the current timestamp, so neither can be reached with a partially
+/// applied state. More importantly, in `WallClock` the gate reduces to
+/// `now >= cliff_time`: it reads no `paused_at`, no `paused_total`, and nothing
+/// any entry point mutates. It is therefore monotone in time and *invariant
+/// across calls*, which is exactly what invariant I3 demands — the strongest
+/// guarantee available for a cliff gate, and the reason the wall-clock path
+/// needs no monotonicity guard of its own.
 ///
-/// Returned by `get_auto_claim_status` to allow callers to validate
-/// the auto-claim destination before executing `trigger_auto_claim`.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum AutoClaimStatus {
-    /// No auto-claim destination has been set for this stream.
-    NotSet,
-    /// Auto-claim destination is set and valid.
-    ValidDestination(AutoClaimValidPayload),
-    /// Auto-claim destination is set but invalid (zero address or contract itself).
-    InvalidDestination(AutoClaimInvalidPayload),
-}
-
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct GlobalResumed {
-    pub resumed_at: u64,
-}
-
-/// Emitted when the contract admin toggles the creation-pause flag via `set_contract_paused`.
-///
-/// When `paused == true`, `create_stream` and `create_streams` revert with
-/// `ContractError::ContractPaused`. All other operations are unaffected.
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct ContractPauseChanged {
-    pub paused: bool,
-}
-
-/// Emitted when the protocol is globally paused via `pause_protocol`.
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct ProtocolPaused {
-    pub reason: soroban_sdk::String,
-    pub paused_at: u64,
-}
-
-/// Emitted when the protocol is globally resumed via `resume_protocol`.
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct ProtocolResumed {
-    pub resumed_at: u64,
-}
-
-/// Information about the current protocol pause state.
-/// Returned by `get_pause_info()` query entrypoint.
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct PauseInfo {
-    pub is_paused: bool,
-    pub reason: Option<soroban_sdk::String>,
-    pub paused_at: Option<u64>,
-    pub paused_by: Option<Address>,
-}
-
-/// Role type for rotation history entries.
+/// Fixed at creation and never mutable, like `cancellable` / `pausable` /
+/// `transferable`: a recipient accepting a stream must be able to verify the
+/// terms will not change underneath them.
 #[contracttype]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum RotationRole {
-    Recipient = 0,
-    Sender = 1,
+pub enum CliffMode {
+    /// The cliff is a point on the **stream clock**, which stops while paused.
+    ///
+    /// The gate opens at `stream_time(now) >= cliff_time`, i.e. in wall-clock
+    /// terms at `cliff_time + paused_total`. This is the original behaviour and
+    /// the default for [`crate::FluxoraStream::create_stream`].
+    Schedule = 0,
+    /// The cliff is an absolute **date**, unaffected by pausing.
+    ///
+    /// The gate opens at `now >= cliff_time`. A pause still freezes accrual, so
+    /// a stream paused before its cliff opens the gate on schedule but pays out
+    /// only what had accrued when it was paused.
+    WallClock = 1,
 }
 
-/// Audit log entry for recipient or sender rotation.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct RotationEntry {
-    pub old_addr: Address,
-    pub new_addr: Address,
-    pub ledger: u32,
-    pub role: RotationRole,
-    pub authoriser: Address,
+impl CliffMode {
+    /// The mode used when a stream is created without naming one.
+    ///
+    /// `Schedule`, so that every stream created through the original
+    /// [`crate::FluxoraStream::create_stream`] entry point behaves exactly as
+    /// it did before `WallClock` existed.
+    pub const DEFAULT: CliffMode = CliffMode::Schedule;
 }
 
+/// A single payment stream.
+///
+/// One entry per stream lives in persistent storage under
+/// `crate::types::DataKey::Stream`. There is deliberately no per-user index
+/// anywhere on chain — see the module docs on `lib.rs` for why.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Stream {
-    pub stream_id: u64,
     pub sender: Address,
     pub recipient: Address,
-    pub claim_owner: Option<Address>,
-    pub deposit_amount: i128,
-    pub rate_per_second: i128,
+    /// SEP-41 token contract. One token per stream; never changes.
+    pub token: Address,
+    /// Total ever deposited, including top-ups. Reduced to `vested` on cancel.
+    pub deposited: i128,
+    /// Total ever withdrawn by the recipient.
+    pub withdrawn: i128,
+    /// Unix seconds. May be in the past (backdated vesting is legitimate) or
+    /// in the future (a scheduled stream). No bound on skew: the ledger
+    /// timestamp is the only clock on chain, and well-formedness (`end > start`,
+    /// `cliff` within `[start, end]`) is the whole validation. See
+    /// [`crate::FluxoraStream::create_stream`].
     pub start_time: u64,
-    pub cliff_time: u64,
+    /// Unix seconds. Strictly greater than `start_time` at creation.
     pub end_time: u64,
-    pub withdrawn_amount: i128,
+    /// Unix seconds in `[start_time, end_time]`. Equals `start_time` when there
+    /// is no cliff. Gates withdrawal; does not delay accrual.
+    ///
+    /// Which clock this is read against is decided by [`CliffMode`]; the field
+    /// itself means the same thing in both modes.
+    pub cliff_time: u64,
+    /// Which clock the cliff gate is read against. Fixed at creation, never
+    /// mutable. Defaults to [`CliffMode::Schedule`].
+    pub cliff_mode: CliffMode,
+    /// Fixed at creation, never mutable. See `lib.rs` module docs.
+    pub cancellable: bool,
+    /// Fixed at creation, never mutable.
+    pub pausable: bool,
+    /// Fixed at creation, never mutable.
+    pub transferable: bool,
+    /// `Some(t)` while paused: the instant the accrual clock froze.
+    pub paused_at: Option<u64>,
+    /// Cumulative seconds spent paused, excluding any in-progress pause.
+    pub paused_total: u64,
     pub status: StreamStatus,
-    pub cancelled_at: Option<u64>,
-    /// Total tokens mathematically accrued up to `checkpointed_at` under all
-    /// previous rates. Updated by `decrease_rate_per_second` (and by
-    /// `update_rate_per_second` for symmetry) so that the new rate applies only
-    /// from `checkpointed_at` forward. Initialised to 0 at stream creation.
-    pub checkpointed_amount: i128,
-    /// Ledger timestamp of the last rate change (or `start_time` on creation).
-    /// `calculate_accrued` uses this as the start of the current rate epoch.
-    pub checkpointed_at: u64,
-    /// Optional withdrawal threshold (raw units). Withdrawals below this
-    /// amount are skipped unless they are the final drain or the stream is terminal.
-    pub withdraw_dust_threshold: i128,
-    /// Optional bounded memo for indexer correlation (e.g. payroll batch ID).
-    /// Maximum length: `MAX_MEMO_BYTES` (64 bytes). `None` when not supplied.
-    pub memo: Option<soroban_sdk::Bytes>,
-    /// The architectural style of the stream (Linear or CliffOnly).
-    pub kind: StreamKind,
-    /// Ledger sequence number of the last pause or resume toggle.
-    /// Used to enforce MIN_PAUSE_INTERVAL_LEDGERS cooldown.
-    pub last_pause_toggle_ledger: u32,
-    /// Ledger sequence number of the last recipient withdrawal.
-    /// Used to enforce MIN_WITHDRAW_INTERVAL_LEDGERS cooldown.
-    pub last_withdraw_ledger: u32,
-    /// Optional structured metadata emitted for indexer consumption.
-    pub metadata: Option<soroban_sdk::Map<soroban_sdk::Bytes, soroban_sdk::Bytes>>,
-    /// Optional compliance witness authorized to cancel via signed attestation.
-    pub witness: Option<Address>,
-    /// Ledger sequence number of the last rate change (or creation).
-    /// Used to enforce MIN_RATE_INTERVAL_LEDGERS cooldown.
-    pub last_rate_change_ledger: u32,
+    /// Release schedule shape, fixed at creation. A stream created before
+    /// curves existed reads back as [`ReleaseCurve::Linear`], which is exactly
+    /// the arithmetic it was created with.
+    ///
+    /// **This field is not part of the stored encoding.** It is kept in a
+    /// side-car entry ([`DataKey::StreamCurve`]) precisely so that the stored
+    /// [`StreamRecord`] layout stays frozen at v1 and every stream written by
+    /// an earlier deployment keeps decoding — see [`StreamRecord`] for why
+    /// appending a field to the stored value is not an option.
+    pub curve: ReleaseCurve,
+    /// Optional reference string for stream identification.
+    ///
+    /// Set at creation and never mutable. Maximum length is
+    /// [`MAX_REFERENCE_LENGTH`] characters. Intended for short identifiers
+    /// like "payroll-001" or "grant-xyz-q1-2024" to help operators distinguish
+    /// between streams on-chain.
+    ///
+    /// Like `curve`, this is **not** part of the frozen v1 stored encoding:
+    /// the record below carries the v1 field set, so a stream read back from an
+    /// entry written before references existed has none.
+    pub reference: Option<String>,
 }
 
-/// Pagination result for recipient stream listing
+/// The **stored** form of a stream: the frozen v1 layout, without `curve`.
+///
+/// # Why the storage layout is frozen while [`Stream`] grew a field
+///
+/// Soroban decodes a `#[contracttype]` struct from an `ScMap` whose key *set*
+/// must match the struct's fields exactly — the host unpacks the map into a
+/// positional slice. Appending a field therefore makes every value written by
+/// an earlier deployment undecodable, and the failure is a host trap inside
+/// the decode, not a catchable error.
+///
+/// `test::storage_keys::current_reader_decodes_old_v1_fixture` pins exactly
+/// that: a hex fixture captured from the v1 encoding must stay readable. It is
+/// the guard that stops a field from being appended to the stored value
+/// casually, and it is why this type exists.
+///
+/// So the stored value did **not** change: [`crate::storage`] reads and writes
+/// this record, and the curve rides alongside it in
+/// [`DataKey::StreamCurve`]. A v1 entry has no curve side-car, which reads as
+/// [`ReleaseCurve::Linear`] — the schedule it was actually created with.
+/// Nothing has to be migrated for a live deployment to keep working.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Page {
-    /// Stream IDs for this page (sorted ascending)
-    pub stream_ids: soroban_sdk::Vec<u64>,
-    /// Next cursor for pagination (0 if no more pages)
-    pub next_cursor: u64,
-}
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct CreateStreamParams {
-    /// Address that will receive streamed tokens for this stream entry.
+pub struct StreamRecord {
+    pub sender: Address,
     pub recipient: Address,
-    /// Total amount escrowed for this stream entry.
-    pub deposit_amount: i128,
-    /// Streaming speed in tokens per second for this stream entry.
-    pub rate_per_second: i128,
-    /// Ledger timestamp when accrual starts for this stream entry.
+    pub token: Address,
+    pub deposited: i128,
+    pub withdrawn: i128,
     pub start_time: u64,
-    /// Ledger timestamp when withdrawals become enabled for this stream entry.
-    pub cliff_time: u64,
-    /// Ledger timestamp when accrual stops for this stream entry.
     pub end_time: u64,
-    /// Optional withdrawal threshold (raw units) to reduce fee spam.
-    pub withdraw_dust_threshold: Option<i128>,
-    /// Optional bounded memo for indexer correlation (e.g. payroll batch ID).
-    /// Maximum `MAX_MEMO_BYTES` (64) bytes. Pass `None` to omit.
-    pub memo: Option<soroban_sdk::Bytes>,
-    /// The architectural style of the stream (Linear or CliffOnly).
-    pub kind: StreamKind,
-    /// Optional structured metadata emitted for indexer consumption.
-    pub metadata: Option<soroban_sdk::Map<soroban_sdk::Bytes, soroban_sdk::Bytes>>,
-    /// If true, the stream cannot be cancelled or shortened. Defaults to false (None).
-    pub irrevocable: Option<bool>,
-    /// Optional compliance witness authorized to cancel via signed attestation.
-    pub witness: Option<Address>,
+    pub cliff_time: u64,
+    pub cancellable: bool,
+    pub pausable: bool,
+    pub transferable: bool,
+    pub paused_at: Option<u64>,
+    pub paused_total: u64,
+    pub status: StreamStatus,
 }
 
-/// Parameters for creating a payment stream with relative (offset-based) times.
-///
-/// Computes `start_time`, `cliff_time`, and `end_time` by adding offsets to the
-/// current ledger timestamp (`env.ledger().timestamp()`). This eliminates off-chain
-/// calculation errors that lead to `StartTimeInPast` failures.
-///
-/// # Time offsets
-/// - `start_delay`: Seconds to add to current timestamp for stream start
-/// - `cliff_delay`: Seconds to add to current timestamp for cliff time (must be >= start_delay)
-/// - `duration`: Total duration of stream in seconds (end_time = start_time + duration)
+/// One element in an atomic payroll-style stream creation batch.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CreateStreamRelativeParams {
-    /// Address that will receive streamed tokens for this stream entry.
+pub struct BatchCreateRequest {
     pub recipient: Address,
-    /// Total amount escrowed for this stream entry.
-    pub deposit_amount: i128,
-    /// Streaming speed in tokens per second for this stream entry.
-    pub rate_per_second: i128,
-    /// Delay (in seconds) before stream accrual starts, relative to current timestamp.
-    pub start_delay: u64,
-    /// Delay (in seconds) before withdrawals are allowed, relative to current timestamp.
-    pub cliff_delay: u64,
-    /// Total duration the stream runs (in seconds) from start_time to end_time.
-    pub duration: u64,
-    /// Optional withdrawal threshold (raw units) to reduce fee spam.
-    pub withdraw_dust_threshold: Option<i128>,
-    /// Optional bounded memo for indexer correlation (e.g. payroll batch ID).
-    /// Maximum `MAX_MEMO_BYTES` (64) bytes. Pass `None` to omit.
-    pub memo: Option<soroban_sdk::Bytes>,
-    /// The architectural style of the stream (Linear or CliffOnly).
-    pub kind: StreamKind,
-    pub metadata: Option<soroban_sdk::Map<soroban_sdk::Bytes, soroban_sdk::Bytes>>,
-    /// If true, the stream cannot be cancelled or shortened. Defaults to false (None).
-    pub irrevocable: Option<bool>,
+    pub token: Address,
+    pub deposit: i128,
+    pub start_time: u64,
+    pub end_time: u64,
+    pub cliff_time: u64,
+    pub cancellable: bool,
+    pub pausable: bool,
+    pub transferable: bool,
 }
 
-/// Reusable relative schedule (offsets only). Amounts are supplied when creating a stream.
+impl StreamRecord {
+    /// Freeze a [`Stream`] into the v1 stored layout.
+    pub fn from_stream(stream: &Stream) -> Self {
+        StreamRecord {
+            sender: stream.sender.clone(),
+            recipient: stream.recipient.clone(),
+            token: stream.token.clone(),
+            deposited: stream.deposited,
+            withdrawn: stream.withdrawn,
+            start_time: stream.start_time,
+            end_time: stream.end_time,
+            cliff_time: stream.cliff_time,
+            cancellable: stream.cancellable,
+            pausable: stream.pausable,
+            transferable: stream.transferable,
+            paused_at: stream.paused_at,
+            paused_total: stream.paused_total,
+            status: stream.status,
+        }
+    }
+
+    /// Rebuild a [`Stream`], attaching the curve stored beside the record.
+    pub fn into_stream(self, curve: ReleaseCurve) -> Stream {
+        Stream {
+            sender: self.sender,
+            recipient: self.recipient,
+            token: self.token,
+            deposited: self.deposited,
+            withdrawn: self.withdrawn,
+            start_time: self.start_time,
+            end_time: self.end_time,
+            cliff_time: self.cliff_time,
+            cancellable: self.cancellable,
+            pausable: self.pausable,
+            transferable: self.transferable,
+            paused_at: self.paused_at,
+            paused_total: self.paused_total,
+            status: self.status,
+            // Neither of these is part of the frozen v1 record, so a stream
+            // decoded from storage takes the pre-feature defaults.
+            cliff_mode: CliffMode::DEFAULT,
+            curve,
+            reference: None,
+        }
+    }
+}
+
+impl Stream {
+    /// Enforces the recipient-only withdrawal policy.
+    ///
+    /// This is the sole authorization gate for withdrawals. A stream has no
+    /// first-class delegate: no one other than the recipient may authorize an
+    /// outgoing payment. This method must be called at the top of `withdraw`
+    /// (and any other recipient-only operation) before any state changes.
+    ///
+    /// The recipient is authenticated via Soroban's authentication framework.
+    /// When the recipient is a contract, the recipient itself decides whether
+    /// to allow the caller to proceed (for example, by implementing
+    /// `__check_auth`); the stream contract does not define a separate
+    /// delegation mechanism.
+    pub fn require_recipient_auth(&self) {
+        self.recipient.require_auth();
+    }
+}
+
+/// Total basis points that share allocations must sum to.
+///
+/// 10_000 bp = 100 %. Every `create_stream_split` call validates that the
+/// supplied shares sum exactly to this value.
+pub const TOTAL_BPS: u32 = 10_000;
+
+/// Maximum number of recipients in a single split stream.
+///
+/// Kept small to bound the footprint of `withdraw_share` (one
+/// `StreamShares` read + one `Stream` read = 2 persistent entries, independent
+/// of the number of other shares), and to stay within the Soroban per-call
+/// instruction budget when iterating over all shares during validation.
+pub const MAX_SPLIT_RECIPIENTS: u32 = 8;
+
+/// One recipient's allocation in a split stream.
+///
+/// Stored inside [`StreamShares`] alongside a per-recipient `withdrawn` counter
+/// that mirrors the stream-level `withdrawn` but tracks only this recipient's
+/// draw-downs. The rest of the accounting (deposited, vested, refundable) is
+/// computed on the fly from the parent stream's fields and the share's `bps`.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct StreamScheduleTemplate {
-    pub template_id: u64,
-    pub owner: Address,
-    pub start_delay: u64,
-    pub cliff_delay: u64,
-    pub duration: u64,
+pub struct ShareEntry {
+    /// The address that may call `withdraw_share` for this slice.
+    pub recipient: Address,
+    /// Allocation in basis points (1 bp = 0.01 %). Must be in `[1, 9999]`;
+    /// the whole set must sum to [`TOTAL_BPS`].
+    pub bps: u32,
+    /// Tokens already withdrawn by this recipient, in the token's smallest
+    /// unit. Starts at zero and only ever grows. Never exceeds the recipient's
+    /// share of the stream's vested total.
+    pub withdrawn: i128,
 }
 
-/// Namespace for all contract storage keys.
+/// The complete set of share allocations for a split stream.
 ///
-/// # Evolution policy
+/// Stored in persistent storage under [`DataKey::StreamShares`], beside the
+/// [`crate::types::StreamRecord`] that carries the common schedule. The entry
+/// exists if and only if the stream was created with
+/// [`crate::FluxoraStream::create_stream_split`]; a plain stream has no shares
+/// entry and `withdraw_share` will return [`crate::error::Error::StreamNotSplit`].
 ///
-/// `DataKey` is a `#[contracttype]` enum. Soroban serialises enum variants by
-/// their **discriminant index** (0-based, in declaration order). Changing the
-/// order of existing variants, or inserting a new variant anywhere other than
-/// the **end** of the enum, will silently shift all subsequent discriminants
-/// and make every existing persistent storage entry unreadable.
-///
-/// Rules for contributors:
-/// 1. **Never reorder** existing variants.
-/// 2. **Never remove** a variant that has ever been written to a live network.
-///    Mark it deprecated in a doc comment instead and stop writing to it.
-/// 3. **Always append** new variants at the end of the enum.
-/// 4. **Increment `CONTRACT_VERSION`** whenever a new variant is added or an
-///    existing variant's associated type changes — both are breaking changes
-///    for any off-chain tool that reads storage directly.
-/// 5. Document the ledger at which each variant was first deployed so that
-///    migration tooling can determine which entries exist on a given instance.
-///
-/// Current discriminant assignments (must never change) — see enum definition below for order.
+/// The shares are ordered by creation order and that order is meaningful:
+/// integer-division rounding dust (the handful of stroops lost when
+/// `deposited * bps / TOTAL_BPS` does not divide evenly) is always credited to
+/// **the first share**. That makes the rounding party deterministic and
+/// auditable at creation time: whoever holds index 0 gets any residue.
 #[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StreamShares {
+    /// Ordered list of share allocations. Length is in `[2, MAX_SPLIT_RECIPIENTS]`.
+    pub shares: soroban_sdk::Vec<ShareEntry>,
+}
+
+/// Storage keys.
+///
+/// `NextStreamId` lives in instance storage (tiny, shares the contract's TTL).
+/// `Stream(id)` entries live in persistent storage with independent TTLs.
+/// `Delegate(stream_id, delegate)` entries live in persistent storage, scoped
+/// to the stream they were issued for.
+///
+/// `HaltOperator` and `HaltedAt` are the one deliberate exception to "no
+/// admin, nothing to configure" (issue #1818): the emergency halt is opt-in,
+/// one-shot and contract-wide, and both keys live in instance storage because
+/// they must never archive independently of the code that reads them. A
+/// deployment that never calls the one-shot setter has neither key and behaves
+/// exactly as it did before the halt existed.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DataKey {
-    Config,                    // Instance storage for global settings (admin/token).
-    NextStreamId,              // Instance storage for the auto-incrementing ID counter.
-    Stream(u64),               // Persistent storage for individual stream data (O(1) lookup).
-    RecipientStreams(Address), // Persistent storage for recipient stream index (sorted by stream_id).
-    /// Global emergency pause flag (bool). This is a contract-wide circuit breaker.
-    GlobalEmergencyPaused,
-    /// Creation pause flag (bool). Appended to avoid shifting existing key discriminants.
-    CreationPaused,
-    /// Protocol pause reason (String). Human-readable reason for the pause.
-    GlobalPauseReason,
-    /// Protocol pause timestamp (u64). Ledger timestamp when pause was activated.
-    GlobalPauseTimestamp,
-    /// Protocol pause admin (Address). The admin address that activated the pause.
-    GlobalPauseAdmin,
-    /// Auto-claim destination per stream (Address). Set by recipient to redirect withdrawals.
-    AutoClaimDestination(u64),
-    /// Monotonic template id counter (`u64`, instance storage).
-    NextTemplateId,
-    /// Number of templates currently stored (`u64`, instance storage).
-    ActiveTemplateCount,
-    /// Registered relative schedule template (persistent).
-    StreamTemplate(u64),
-    /// Template ids owned by an address (persistent `Vec<u64>`; length capped).
-    OwnerTemplateIds(Address),
-    /// Sum of outstanding deposit liabilities (`i128`, instance storage).
-    TotalLiabilities,
-    /// Per-recipient nonce counter for delegated-withdraw replay protection.
-    /// Appended last to preserve existing discriminant values.
-    WithdrawNonce(Address),
-    /// Current protocol-wide pause state (Active, CreationPaused, or GlobalEmergencyPaused).
-    PauseState,
-    /// Reentrancy guard flag (bool) to prevent recursive token transfers.
-    ReentrancyLock,
-    /// Paged recipient stream index (page number → Vec<u64> of stream IDs).
-    RecipientStreamPage(Address, u32),
-    /// Number of pages in a recipient's paged stream index.
-    RecipientStreamPageCount(Address),
-    /// Pending recipient update proposal for a stream (sender-initiated, recipient-accepted).
-    PendingRecipientUpdate(u64),
-    /// Active ID reservation for a caller (Address → IdReservation).
-    IdReservation(Address),
-    /// Per-stream max rate cap (i128). Instance storage.
-    MaxRatePerSecond,
-    /// Per-recipient nonce for delegated-withdraw replay protection.
-    DelegatedWithdrawNonce(Address),
-    /// Last pause record for stream-level or protocol-level pause.
-    LastPauseRecord(PauseKind),
-    /// Rotation history for recipient/sender changes on a stream.
-    RotationHistory(u64),
-    /// Last ledger timestamp observed for accrual clock-regression detection.
-    LastAccrualLedgerTimestamp,
-    /// Protocol-wide count of streams currently in `StreamStatus::Paused` (`u64`, instance storage).
-    PausedStreamCount,
-    /// Aggregate sum of all keeper fees paid out via `keeper_cancel` (`i128`, instance storage).
-    TotalKeeperFeesPaid,
-}
-
-/// Type of pause.
-#[contracttype]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum PauseKind {
-    Protocol = 0,
-    Stream = 1,
-}
-
-/// Record of a pause action.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct PauseRecord {
-    pub actor: Address,
-    pub timestamp: u64,
-    pub reason: soroban_sdk::String,
-}
-
-/// Event emitted when a keeper cancels a stream.
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct KeeperCancelled {
-    pub stream_id: u64,
-    pub keeper: Address,
-    pub keeper_fee: i128,
-    pub recipient_amount: i128,
-    pub sender_refund: i128,
+    /// Instance storage. Monotonic counter, next id to hand out.
+    /// Incremented only on successful stream creation.
+    NextStreamId,
+    /// Instance storage. Number of streams successfully created.
+    /// Incremented only in the same transaction as `NextStreamId` and the
+    /// corresponding `Stream(id)` entry.
+    StreamCount,
+    /// Instance storage. One entry per token: the balance Fluxora expects to
+    /// hold, i.e. the sum of every live stream's outstanding liability plus
+    /// any refund that has been debited but not yet transferred. Credited by
+    /// every verified deposit pull, debited by every payout and refund, and
+    /// reconciled against the token's own `balance` at the end of every
+    /// operation that moves pool funds (`Error::PoolBalanceDrift`).
+    ///
+    /// Instance storage rather than persistent: the total is a hot-path read
+    /// for every withdrawal, and it must never be archivable out from under a
+    /// live pool — instance entries are pinned to the network maximum on every
+    /// mutating call, so a stream can never outlive the balance it was funded
+    /// against.
+    PooledBalance(Address),
+    /// Persistent storage. One entry per stream.
+    Stream(u64),
+    /// Persistent storage. One entry per (stream_id, delegate) pair.
+    Delegate(u64, Address),
+    /// Persistent storage. The [`ReleaseCurve`] of one stream.
+    ///
+    /// Written only when the curve is **not** [`ReleaseCurve::Linear`], so a
+    /// linear stream — every stream a v1 deployment created, and every stream
+    /// `create_stream` still creates — has no entry here at all and pays no
+    /// rent for one. A missing entry means linear.
+    StreamCurve(u64),
+    /// Instance storage. The address allowed to halt and resume the contract.
+    /// Absent until [`crate::FluxoraStream::set_halt_operator`] runs once.
+    HaltOperator,
+    /// Instance storage. Unix seconds at which the halt was engaged; present
+    /// if and only if the contract is halted.
+    HaltedAt,
+    /// Persistent storage. Share allocations for a split stream.
+    ///
+    /// Present if and only if the stream was created with
+    /// [`crate::FluxoraStream::create_stream_split`]. A plain single-recipient
+    /// stream has no entry here. The TTL mirrors the parent stream entry.
+    StreamShares(u64),
 }
